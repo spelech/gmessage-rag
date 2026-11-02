@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gmessages-rag Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --border: #334155;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: var(--bg);
+      color: var(--text);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 { margin: 0; font-size: 24px; font-weight: 600; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .card-title {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .card-value {
+      font-size: 22px;
+      font-weight: 700;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .badge-ok { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+    .badge-err { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 24px 0 12px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card-bg);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background: #111827;
+      color: var(--text-muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    tr:last-child td { border-bottom: none; }
+    .btn {
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      transition: background 0.2s;
+    }
+    .btn-track { background: var(--primary); color: #fff; }
+    .btn-untrack { background: var(--border); color: var(--text-muted); }
+    .btn:hover { opacity: 0.9; }
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+    .qr-container img {
+      background: white;
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>gmessages-rag Management Dashboard</h1>
+    <div>
+      <span id="daemon-badge" class="badge badge-ok">Daemon: Active</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-title">Database Status</div>
+      <div id="db-status" class="card-value">-</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Google Messages Link</div>
+      <div id="gm-status" class="card-value">-</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Unindexed Messages</div>
+      <div id="unindexed-count" class="card-value">-</div>
+    </div>
+  </div>
+
+  <div id="qr-section" class="qr-container" style="display: none;">
+    <h3>Pairing Required</h3>
+    <p style="color: var(--text-muted);">Scan this QR code with Google Messages on your mobile device (Device Pairing):</p>
+    <img id="qr-image" src="/pair?format=png" alt="Google Messages Pairing QR Code" width="240" height="240" />
+  </div>
+
+  <div class="section-title">Tracked Contacts &amp; Conversations</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Conversation ID</th>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Last Activity</th>
+        <th>Tracking</th>
+      </tr>
+    </thead>
+    <tbody id="contacts-table-body">
+      <tr>
+        <td colspan="5" style="text-align: center; color: var(--text-muted);">Loading conversations...</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <script>
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/v1/status');
+        if (!res.ok) throw new Error('Status fetch failed');
+        const data = await res.json();
+
+        const dbStatusEl = document.getElementById('db-status');
+        if (data.db_connected) {
+          dbStatusEl.innerHTML = '<span class="badge badge-ok">Connected</span>';
+        } else {
+          dbStatusEl.innerHTML = '<span class="badge badge-err">Disconnected</span>';
+        }
+
+        const gmStatusEl = document.getElementById('gm-status');
+        const qrSection = document.getElementById('qr-section');
+        if (data.gm_connected) {
+          gmStatusEl.innerHTML = '<span class="badge badge-ok">Linked</span>';
+          qrSection.style.display = 'none';
+        } else {
+          gmStatusEl.innerHTML = '<span class="badge badge-err">Unpaired</span>';
+          qrSection.style.display = 'flex';
+          const qrImg = document.getElementById('qr-image');
+          qrImg.src = '/pair?format=png&t=' + Date.now();
+        }
+
+        document.getElementById('unindexed-count').textContent = data.unindexed_messages ?? 0;
+      } catch (err) {
+        console.error('Error loading status:', err);
+      }
+    }
+
+    async function toggleTrack(conversationId, currentTracked) {
+      try {
+        const res = await fetch('/api/v1/contacts/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversation_id: conversationId, is_tracked: !currentTracked })
+        });
+        if (!res.ok) throw new Error('Failed to update tracking');
+        fetchContacts();
+      } catch (err) {
+        alert('Failed to update tracking: ' + err.message);
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function fetchContacts() {
+      try {
+        const res = await fetch('/api/v1/contacts');
+        if (!res.ok) throw new Error('Contacts fetch failed');
+        const contacts = await res.json();
+        const tbody = document.getElementById('contacts-table-body');
+
+        if (!contacts || contacts.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No conversations found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        contacts.forEach(c => {
+          const tr = document.createElement('tr');
+          const lastActivity = c.last_message_at ? new Date(c.last_message_at).toLocaleString() : 'Never';
+          const type = c.is_group ? 'Group' : 'Direct';
+          const trackBtnText = c.is_tracked ? 'Tracked' : 'Untracked';
+          const trackBtnClass = c.is_tracked ? 'btn btn-track' : 'btn btn-untrack';
+
+          const tdId = document.createElement('td');
+          const codeEl = document.createElement('code');
+          codeEl.textContent = c.id;
+          tdId.appendChild(codeEl);
+
+          const tdName = document.createElement('td');
+          const strongEl = document.createElement('strong');
+          strongEl.textContent = c.name || 'Unnamed';
+          tdName.appendChild(strongEl);
+
+          const tdType = document.createElement('td');
+          tdType.textContent = type;
+
+          const tdActivity = document.createElement('td');
+          tdActivity.textContent = lastActivity;
+
+          const tdTrack = document.createElement('td');
+          const btn = document.createElement('button');
+          btn.className = trackBtnClass;
+          btn.textContent = trackBtnText;
+          btn.onclick = () => toggleTrack(c.id, c.is_tracked);
+          tdTrack.appendChild(btn);
+
+          tr.appendChild(tdId);
+          tr.appendChild(tdName);
+          tr.appendChild(tdType);
+          tr.appendChild(tdActivity);
+          tr.appendChild(tdTrack);
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error('Error loading contacts:', err);
+      }
+    }
+
+    fetchStatus();
+    fetchContacts();
+    setInterval(fetchStatus, 5000);
+  </script>
+</body>
+</html>

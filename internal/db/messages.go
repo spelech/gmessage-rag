@@ -210,6 +210,21 @@ ORDER BY sent_at ASC, id ASC;
 	return scanMessages(rows)
 }
 
+// CountUnindexedMessages returns the count of messages that have not yet been assigned to a session (session_id IS NULL).
+func (d *DB) CountUnindexedMessages(ctx context.Context) (int64, error) {
+	const countUnindexedSQL = `
+SELECT COUNT(*)
+FROM messages
+WHERE session_id IS NULL;
+`
+	var count int64
+	err := d.Pool.QueryRow(ctx, countUnindexedSQL).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count unindexed messages: %w", err)
+	}
+	return count, nil
+}
+
 func scanMessages(rows pgx.Rows) ([]Message, error) {
 	var msgs []Message
 	for rows.Next() {
