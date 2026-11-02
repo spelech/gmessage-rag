@@ -13,6 +13,11 @@ type ContactsFetcher interface {
 	ListContacts(ctx context.Context) (*gmproto.ListContactsResponse, error)
 }
 
+// ListContacts implements ContactsFetcher by forwarding to the underlying libgm client.
+func (c *Client) ListContacts(ctx context.Context) (*gmproto.ListContactsResponse, error) {
+	return c.libgmClient.ListContacts(ctx)
+}
+
 // ContactThumbnailFetcher optionally provides contact thumbnail fetching.
 type ContactThumbnailFetcher interface {
 	GetContactThumbnail(ctx context.Context, contactIDs ...string) (*gmproto.GetThumbnailResponse, error)
