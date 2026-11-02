@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/iotest"
 
+	gmcrypto "go.mau.fi/mautrix-gmessages/pkg/libgm/crypto"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
@@ -506,4 +507,107 @@ type errMockDownloader struct{}
 
 func (e *errMockDownloader) DownloadMedia(mediaID string, key []byte) (io.ReadCloser, error) {
 	return nil, errors.New("simulated network failure")
+}
+
+// gcmFixtureDownloader stands in for the libgm network edge. It decrypts the
+// fixture with the real AES-GCM media cipher, returning the same plaintext
+// stream that libgm.Client.DownloadMedia yields in production.
+type gcmFixtureDownloader struct {
+	ciphertext map[string][]byte
+}
+
+func (d *gcmFixtureDownloader) DownloadMedia(mediaID string, key []byte) (io.ReadCloser, error) {
+	ct, ok := d.ciphertext[mediaID]
+	if !ok {
+		return nil, errors.New("no media fixture for " + mediaID)
+	}
+	helper, err := gmcrypto.NewAESGCMHelper(key)
+	if err != nil {
+		return nil, err
+	}
+	return helper.DecryptStream(io.NopCloser(bytes.NewReader(ct))), nil
+}
+
+// [Requirement(SEC-01)]
+// TestMediaDecryption_AESGCM decrypts an AES-GCM RCS attachment with the real
+// libgm cipher, then asserts the content-addressed file holds the exact
+// plaintext bytes at the two-tier SHA-256 path.
+func TestMediaDecryption_AESGCM(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "gm-media-gcm-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	key := gmcrypto.GenerateKey(32)
+	plaintext := []byte("decrypted-rcs-image-payload-for-sec-01")
+
+	helper, err := gmcrypto.NewAESGCMHelper(key)
+	if err != nil {
+		t.Fatalf("failed to build media cipher: %v", err)
+	}
+	ciphertext, err := helper.EncryptData(plaintext)
+	if err != nil {
+		t.Fatalf("failed to encrypt media fixture: %v", err)
+	}
+
+	downloader := &gcmFixtureDownloader{
+		ciphertext: map[string][]byte{"media-gcm-1": ciphertext},
+	}
+
+	msg := &gmproto.Message{
+		MessageID:      "msg-gcm-001",
+		ConversationID: "conv-gcm",
+		MessageInfo: []*gmproto.MessageInfo{
+			{
+				Data: &gmproto.MessageInfo_MediaContent{
+					MediaContent: &gmproto.MediaContent{
+						MediaID:       "media-gcm-1",
+						DecryptionKey: key,
+						MimeType:      "image/png",
+						MediaName:     "photo.png",
+					},
+				},
+			},
+		},
+	}
+
+	attachments, err := ExtractAndSaveMedia(context.Background(), downloader, msg, tempDir)
+	if err != nil {
+		t.Fatalf("ExtractAndSaveMedia failed: %v", err)
+	}
+	if len(attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(attachments))
+	}
+	att := attachments[0]
+
+	expectedHash := sha256.Sum256(plaintext)
+	expectedHex := hex.EncodeToString(expectedHash[:])
+	if att.SHA256Hash != expectedHex {
+		t.Fatalf("expected hash %s, got %s", expectedHex, att.SHA256Hash)
+	}
+
+	expectedRel := filepath.Join(expectedHex[0:2], expectedHex[2:4], expectedHex+".png")
+	if att.RelativePath != expectedRel {
+		t.Fatalf("expected content-addressed rel path %s, got %s", expectedRel, att.RelativePath)
+	}
+
+	saved, err := os.ReadFile(filepath.Join(tempDir, att.RelativePath))
+	if err != nil {
+		t.Fatalf("saved media file not readable: %v", err)
+	}
+	if !bytes.Equal(saved, plaintext) {
+		t.Fatalf("on-disk bytes do not match decrypted plaintext: got %q", saved)
+	}
+	if int64(len(saved)) != att.FileSizeBytes {
+		t.Fatalf("file size mismatch: on-disk %d, recorded %d", len(saved), att.FileSizeBytes)
+	}
+
+	info, err := os.Stat(filepath.Join(tempDir, att.RelativePath))
+	if err != nil {
+		t.Fatalf("stat saved media file: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("expected 0600 file permissions, got %o", info.Mode().Perm())
+	}
 }

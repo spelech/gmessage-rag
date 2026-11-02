@@ -93,6 +93,52 @@ func TestDebouncer_TypingIndicatorReset(t *testing.T) {
 	}
 }
 
+// [Requirement(PIPE-05)]
+// TestDebouncer_TypingExtendsWindow proves that an incoming typing indicator
+// actually extends the idle window that would otherwise have flushed (PIPE-05).
+func TestDebouncer_TypingExtendsWindow(t *testing.T) {
+	flushed := make(chan string, 5)
+	debouncer := NewSmartDebouncer(DebouncerConfig{
+		IdleTimeout: 120 * time.Millisecond,
+		OnFlush: func(ctx context.Context, conversationID string) error {
+			flushed <- conversationID
+			return nil
+		},
+	})
+	defer func() {
+		require.NoError(t, debouncer.Close())
+	}()
+
+	const convID = "conv-typing-window"
+
+	// Start the idle countdown with an inbound message (flush due at t=120ms).
+	debouncer.RecordEvent(convID, EventInboundMessage)
+	require.Equal(t, 1, debouncer.ActiveCount())
+
+	// At t=80ms a participant starts typing: the window must extend to t=200ms.
+	time.Sleep(80 * time.Millisecond)
+	debouncer.RecordTypingType(convID, gmproto.TypingTypes_STARTED_TYPING)
+
+	// At t=160ms the original (un-extended) deadline has passed. Without the
+	// typing extension the callback would already have fired.
+	time.Sleep(80 * time.Millisecond)
+	select {
+	case conv := <-flushed:
+		t.Fatalf("typing indicator failed to extend the idle window; flushed at 160ms for %s", conv)
+	default:
+	}
+
+	// The window must still close after silence following the typing event.
+	select {
+	case conv := <-flushed:
+		assert.Equal(t, convID, conv)
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("expected flush callback after typing stopped and extended window elapsed")
+	}
+
+	assert.Equal(t, 0, debouncer.ActiveCount())
+}
+
 // TestDebouncer_TypingStoppedDoesNotReset verifies STOPPED_TYPING doesn't extend the timer.
 func TestDebouncer_TypingStoppedDoesNotReset(t *testing.T) {
 	flushed := make(chan string, 5)

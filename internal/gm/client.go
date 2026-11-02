@@ -28,12 +28,16 @@ type MessageUpsertFunc func(ctx context.Context, msg *gmproto.Message, isFromMe 
 // ConversationActivityFunc is called to reset or notify conversation activity (e.g. idle debouncer).
 type ConversationActivityFunc func(conversationID string)
 
+// TypingActivityFunc is called when a participant typing indicator arrives for a conversation (PIPE-05).
+type TypingActivityFunc func(conversationID string, typingType gmproto.TypingTypes)
+
 // ClientOptions configures the GM client wrapper.
 type ClientOptions struct {
 	SessionPath          string
 	Logger               zerolog.Logger
 	OnMessageUpsert      MessageUpsertFunc
 	OnConversationActive ConversationActivityFunc
+	OnTypingActivity     TypingActivityFunc
 	HTTPClientSettings   *exhttp.ClientSettings
 }
 
@@ -45,6 +49,7 @@ type Client struct {
 	logger               zerolog.Logger
 	onMessageUpsert      MessageUpsertFunc
 	onConversationActive ConversationActivityFunc
+	onTypingActivity     TypingActivityFunc
 
 	mu            sync.RWMutex
 	pairDone      chan struct{}
@@ -86,6 +91,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		logger:               opts.Logger,
 		onMessageUpsert:      opts.OnMessageUpsert,
 		onConversationActive: opts.OnConversationActive,
+		onTypingActivity:     opts.OnTypingActivity,
 		pairDone:             make(chan struct{}),
 	}
 
@@ -212,6 +218,9 @@ func (c *Client) handleEvent(evt any) {
 	case *gmproto.Message:
 		c.handleIncomingMessage(e)
 
+	case *gmproto.TypingData:
+		c.handleTypingData(e)
+
 	case *events.ListenFatalError:
 		c.logger.Error().Err(e.Error).Msg("Fatal listener error in libgm")
 		c.mu.Lock()
@@ -247,6 +256,21 @@ func (c *Client) handleIncomingMessage(msg *gmproto.Message) {
 			c.logger.Error().Err(err).Str("message_id", msg.GetMessageID()).Msg("Failed to upsert message")
 		}
 	}
+}
+
+// handleTypingData forwards a participant typing indicator to the action-aware
+// debouncer so an active conversation holds its idle window open (PIPE-05).
+func (c *Client) handleTypingData(data *gmproto.TypingData) {
+	if data == nil {
+		return
+	}
+
+	convID := data.GetConversationID()
+	if convID == "" || c.onTypingActivity == nil {
+		return
+	}
+
+	c.onTypingActivity(convID, data.GetType())
 }
 
 // Connect starts connection recovery or background session.
