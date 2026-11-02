@@ -200,3 +200,22 @@ LIMIT $2;
 
 	return convs, nil
 }
+
+// SetConversationTracked updates the is_tracked flag for a conversation.
+func (d *DB) SetConversationTracked(ctx context.Context, conversationID string, isTracked bool) error {
+	const updateTrackedSQL = `
+UPDATE conversations
+SET is_tracked = $2,
+    updated_at = NOW()
+WHERE id = $1;
+`
+
+	tag, err := d.Pool.Exec(ctx, updateTrackedSQL, conversationID, isTracked)
+	if err != nil {
+		return fmt.Errorf("update conversation tracking status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
