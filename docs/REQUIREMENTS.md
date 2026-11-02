@@ -43,6 +43,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`DB-04`** | `DB` | [x] Complete | **Hybrid RRF Search Query** | PR #4, #5, #7, #13, #15, #16 | Combines full-text BM25 (`ts_rank_cd`) and vector cosine similarity (`<=>`) using Reciprocal Rank Fusion ($k=60$) over session transcripts. | `internal/db/sessions_test.go::TestSearchSessionsHybrid_RRF` |
 | **`DB-05`** | `DB` | [x] Complete | **Living Dossier State & Audit History** | PR #4, #5, #7, #13, #15, #16 | Upserts current structured state in `contact_dossiers` and snapshots prior state to `contact_dossier_history` for rollback safety. | `internal/db/dossiers_test.go::TestDossierVersionAuditHistory` |
 | **`DB-06`** | `DB` | [x] Complete | **Inferred Read/Delivery Heuristics** | PR #37, commit `0c88b51` | When enabled (`ENABLE_READ_RECEIPT_HEURISTIC=true`), infers prior outgoing messages up to incoming reply timestamp are delivered and acknowledged for SMS/iPhone contacts lacking native receipts. | `internal/db/messages_test.go::TestUpsertMessages_ReadReceiptHeuristic` |
+| **`DB-07`** | `DB` | [ ] In Progress | **Postgres-Backed CI Integration Tests** | Issue #72 | CI provisions a `pgvector/pgvector:pg17` service with `DATABASE_URL`, so `internal/db`, `internal/pipeline`, and `internal/gm` integration tests execute on every push. Enforces a ≥ 75% coverage floor. | `.github/workflows/ci.yml` (Stage 2 service block) |
 | **`GUARD-01`** | `GUARD` | [x] Complete | **Prompt Injection XML Boundary** | Commit `57dad5e` | All raw message texts, transcripts, and OCR text returned by MCP tools are wrapped in `<untrusted_conversation_data>` tags. | `internal/mcpserver/guardrails_test.go::TestWrapUntrustedData_Escaping` |
 | **`GUARD-02`** | `GUARD` | [x] Complete | **Send-Message Restriction** | Commit `57dad5e` | Deliberately omits outbound `send_message` MCP tool unless `ENABLE_MCP_SEND_MESSAGE=true` is explicitly configured. | `internal/mcpserver/tools_test.go::TestSendMessageTool_RegistrationGuard` |
 | **`PIPE-01`** | `PIPE` | [x] Complete | **Vision OCR Sidecar** | PR #6, #12 | Extracts verbatim OCR text and 1-2 sentence visual description for image attachments in tracked conversations via OpenAI-compatible vision model. | `internal/pipeline/vision_test.go::TestVisionOCR_Extraction` |
@@ -149,6 +150,13 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Status**: `[x] Complete` (PR #37, commit `0c88b51`)
 - **Description**: For SMS or iPhone RCS threads where explicit delivery or read receipts are omitted by the carrier or client, when `ENABLE_READ_RECEIPT_HEURISTIC=true` is set, any incoming message from a contact automatically causes all preceding outgoing messages in that conversation up to the incoming message timestamp to be marked as delivered and acknowledged.
 - **Verification**: Ingestion tests with simulated interleaved incoming and outgoing messages verifying status progression.
+
+### `DB-07`: Postgres-Backed CI Integration Tests
+- **Category**: `DB` (`NonFunctional`)
+- **Status**: `[ ] In Progress` (Issue #72)
+- **Description**: CI provisions a `pgvector/pgvector:pg17` service exposing `DATABASE_URL`, so the DB integration suites (`internal/db`, `internal/pipeline`, `internal/gm`) execute on every push instead of skipping. A coverage-floor step fails the build if total coverage drops below 75% or `internal/db` drops below 75%.
+- **Evidence (local measurement)**: Without a database, `internal/db` reports 7.3% and the suite 71.2%. With Postgres+pgvector, `internal/db` reports 80.5% and the suite 78.7%.
+- **Verification**: `.github/workflows/ci.yml` Stage 2 `services.postgres` + `Enforce Coverage Floors`; local equivalent documented in `docs/operations/runbooks.md` and runnable via `make test-integration`.
 
 ### `GUARD-01`: Prompt Injection XML Boundary
 - **Category**: `GUARD` (`FailClosedGuardrail`)

@@ -52,3 +52,23 @@ Failure triage:
 - `timed out waiting for an inbound message` -> send a message during the window, or confirm the phone is still paired.
 - `Gaia pairing should complete after operator approval` -> re-run and approve the emoji promptly; check for revoked sessions.
 - `session file must be 0600` -> the session path is on a filesystem that ignores POSIX modes; use a local path.
+
+## Runbook 5: Running DB Integration Tests Locally (`DB-07`)
+
+The `internal/db` suite (sessions, RRF/HNSW, FTS, dossiers, receipts) skips itself unless a Postgres+pgvector database is reachable. To run it locally:
+
+1. Start an ephemeral pgvector instance:
+   ```bash
+   docker run -d --name gmtest-db -p 5432:5432 \
+     -e POSTGRES_USER=rcsrag -e POSTGRES_PASSWORD=changeme -e POSTGRES_DB=gmessages_test \
+     pgvector/pgvector:pg17
+   ```
+2. Wait for readiness, then run the integration target:
+   ```bash
+   export DATABASE_URL='postgres://rcsrag:changeme@localhost:5432/gmessages_test?sslmode=disable'
+   make test-integration
+   ```
+3. Expected: `internal/db` coverage ≥ 75% and total suite coverage ≥ 75%.
+4. Tear down: `docker rm -f gmtest-db`.
+
+CI runs the same suite against a `services.postgres` container in Stage 2, so a SQL regression fails the build.

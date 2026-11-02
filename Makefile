@@ -1,4 +1,4 @@
-.PHONY: all build test test-live lint vulncheck run compose-up compose-down pair clean
+.PHONY: all build test test-integration test-live lint vulncheck run compose-up compose-down pair clean
 
 GOBIN ?= $(shell go env GOPATH)/bin
 
@@ -11,6 +11,13 @@ build:
 # so any accidental outbound request fails the run. No network access required.
 test:
 	go test -v -race -coverprofile=coverage.out ./...
+
+# DB-backed integration suite (DB-07): requires a reachable Postgres+pgvector DATABASE_URL.
+# The internal/db tests skip themselves when DATABASE_URL is unset.
+test-integration:
+	@test -n "$$DATABASE_URL" || (echo "DATABASE_URL must be set for test-integration" && exit 1)
+	go test -v -race -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
 
 # Live integration tests (HARN-03/HARN-04): quarantined behind the `live` build tag.
 # Requires real network access and explicit opt-in; never run in CI.
