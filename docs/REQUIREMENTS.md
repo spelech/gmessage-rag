@@ -37,6 +37,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`PIPE-01`** | `PIPE` | `PositiveFeature` | **Vision OCR Sidecar** | Extracts verbatim OCR text and 1-2 sentence visual description for image attachments in tracked conversations via OpenAI-compatible vision model. | `internal/pipeline/vision_test.go::TestVisionOCR_Extraction` |
 | **`PIPE-02`** | `PIPE` | `PositiveFeature` | **Per-Conversation Idle Debouncer** | Maintains thread-safe timers per tracked conversation; triggers pipeline run after 30 minutes of messaging silence. | `internal/pipeline/debouncer_test.go::TestDebouncer_ResetOnNewMessage` |
 | **`PIPE-03`** | `PIPE` | `PositiveFeature` | **LLM State Reconciliation Engine** | Reconciles new sessions against current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown to disk. | `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` |
+| **`MCP-00`** | `MCP` | `PositiveFeature` | **2026-07-28 Spec & Ping Support** | Strictly adheres to the 2026-07-28 MCP specification: returns `Mcp-Protocol-Version: 2026-07-28` header, handles `ping` JSON-RPC method returning empty object `{}`, supports `initialize`/`notifications/initialized`, and runs over Streamable HTTP (`POST /mcp`), SSE (`GET /sse`), and stdio. | `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
 | **`MCP-01`** | `MCP` | `PositiveFeature` | **`list_conversations` Tool** | Lists conversations with IDs, contact names, participant identifiers, tracked status, and last activity timestamp. | `internal/mcpserver/tools_test.go::TestTool_ListConversations` |
 | **`MCP-02`** | `MCP` | `PositiveFeature` | **`get_contact_dossier` Tool** | Returns current Markdown dossier, structured JSON state, plus live tail of unindexed messages sent after last dossier reconciliation. | `internal/mcpserver/tools_test.go::TestTool_GetContactDossier` |
 | **`MCP-03`** | `MCP` | `PositiveFeature` | **`search_conversation_history` Tool** | Executes Hybrid RRF query across sessions with optional date bounds and returns formatted transcripts. | `internal/mcpserver/tools_test.go::TestTool_SearchConversationHistory` |
@@ -65,3 +66,13 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Category**: `DB` (`PositiveFeature`)
 - **Description**: Implement a PostgreSQL Common Table Expression (CTE) fusing full-text search (`search_tsv @@ websearch_to_tsquery('english', $2)`) and vector cosine similarity (`embedding <=> $5::halfvec`) via Reciprocal Rank Fusion ($k=60$).
 - **Verification**: Query execution tests asserting correct RRF scoring and rank fusion ordering.
+
+### `MCP-00`: 2026-07-28 Model Context Protocol Compliance & Ping Method
+- **Category**: `MCP` (`PositiveFeature`)
+- **Description**: The MCP server strictly implements the `2026-07-28` Model Context Protocol specification:
+  1. **Handshake & Version**: Handles `initialize` method returning `protocolVersion: "2026-07-28"`, capabilities, and server info. Handles `notifications/initialized`.
+  2. **Ping Support**: Handles `ping` JSON-RPC method returning empty object `{}` with the request ID.
+  3. **Protocol Header**: HTTP responses (both Streamable HTTP and SSE) return `Mcp-Protocol-Version: 2026-07-28`.
+  4. **Multi-Transport**: Supports stateless Streamable HTTP (`POST /mcp`), Server-Sent Events (`GET /sse`), and standard I/O (`stdio`).
+- **Verification**: Unit tests in `internal/mcpserver/server_test.go` asserting `ping` handling, `Mcp-Protocol-Version: 2026-07-28` response header, initialization lifecycle, and tool invocation.
+

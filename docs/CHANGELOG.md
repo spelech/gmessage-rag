@@ -14,3 +14,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configured 4-stage GitHub Actions CI pipeline (`.github/workflows/ci.yml`) and Dependabot updates (`.github/dependabot.yml`).
 - Authored comprehensive living documentation: `docs/ARCHITECTURE.md` (topology, ER diagram, sequence flow) and `docs/REQUIREMENTS.md` (SRS with category taxonomy and test traceability matrix).
 - Added `scripts/commit.sh` enforcing Git Flow branch protection and Conventional Commits.
+- Implemented `internal/mcpserver` adhering strictly to the `2026-07-28` Model Context Protocol (MCP) specification with native `ping` JSON-RPC method, `Mcp-Protocol-Version: 2026-07-28` response header, Streamable HTTP (`POST /mcp`), Server-Sent Events (`GET /sse`), stdio transport, and prompt injection XML boundary guardrails (`GUARD-01`, `GUARD-02`, `MCP-00`).
+
