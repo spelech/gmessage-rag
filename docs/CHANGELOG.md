@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **DB-Backed MCP Tool Handlers (`MCP-01`..`MCP-06`, #79)**: All six builtin MCP tools now execute real queries through `internal/db` (`ListConversations`, `GetContactDossier`/`GetDossierLiveTail`, `SearchSessionsHybrid`, `GetMessagesAroundTime`, `SearchMediaAttachments`, `SetConversationTracked`/`ResetConversationBackfill`) instead of placeholder stubs. Added optional `MCP_ACCESS_TOKEN` bearer enforcement on `tools/call` and a `db.SearchMediaAttachments` query.
+- **Real-Postgres MCP Integration Tests**: `internal/mcpserver/tools_test.go` asserts seeded records flow through the JSON-RPC tool surface (`TestTools_*_RealDB`), skipping cleanly when `DATABASE_URL` is unavailable.
+
 ## [1.0.0-rc2] - 2026-11-02
 
 ### Added

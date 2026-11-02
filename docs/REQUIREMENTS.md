@@ -84,12 +84,12 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` |
 | **`REFACTOR-01`**| `REFACTOR`| [x] Complete | **Comprehensive Architecture Purge** | Issue #42, commit `c279ebd` | Holistic code smell elimination, clean package boundaries, and verification across all daemon subsystems. | `gate:Makefile` (`make lint`, `make test`) |
 | **`MCP-00`** | `MCP` | [x] Complete | **2026-07-28 Spec & Ping Support** | Commit `57dad5e` | Strictly adheres to the 2026-07-28 MCP specification: returns `Mcp-Protocol-Version: 2026-07-28` header, handles `ping` JSON-RPC method returning empty object `{}`, supports `initialize`/`notifications/initialized`, and runs over Streamable HTTP (`POST /mcp`), SSE (`GET /sse`), and stdio. | `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
-| **`MCP-01`** | `MCP` | [~] Partial | **`list_conversations` Tool** | Commit `57dad5e` | Lists conversations with IDs, contact names, participant identifiers, tracked status, and last activity. **Partial:** the tool has a schema and is registered, but its handler is a stub returning placeholder text; no DB access. | `internal/mcpserver/tools_test.go::TestTool_ListConversations` (registration only) |
-| **`MCP-02`** | `MCP` | [~] Partial | **`get_contact_dossier` Tool** | Commit `57dad5e` | Returns the current Markdown dossier, structured JSON state, and a live tail of unindexed messages. **Partial:** stub handler; no dossier or DB access. | `internal/mcpserver/tools_test.go::TestTool_GetContactDossier` (registration only) |
-| **`MCP-03`** | `MCP` | [~] Partial | **`search_conversation_history` Tool** | Commit `57dad5e` | Executes a Hybrid RRF query across sessions with optional date bounds and returns formatted transcripts. **Partial:** stub handler; no RRF query. | `internal/mcpserver/tools_test.go::TestTool_SearchConversationHistory` (registration only) |
-| **`MCP-04`** | `MCP` | [~] Partial | **`get_messages_around_time` Tool** | Commit `57dad5e` | Pulls verbatim message context and media OCR annotations within a time window. **Partial:** stub handler; no DB access. | `internal/mcpserver/tools_test.go::TestTool_GetMessagesAroundTime` (registration only) |
-| **`MCP-05`** | `MCP` | [~] Partial | **`search_shared_media` Tool** | Commit `57dad5e` | Searches media attachments by OCR text and visual descriptions. **Partial:** stub handler; no DB access and no OCR data exists. | `internal/mcpserver/tools_test.go::TestTool_SearchSharedMedia` (registration only) |
-| **`MCP-06`** | `MCP` | [~] Partial | **`manage_tracked_contact` Tool** | Commit `57dad5e` | Enables or disables thread tracking, initiates backfill, or forces a dossier refresh. **Partial:** stub handler; no DB access. | `internal/mcpserver/tools_test.go::TestTool_ManageTrackedContact` (registration only) |
+| **`MCP-01`** | `MCP` | [x] Complete | **`list_conversations` Tool** | Issue #79 | Lists conversations with IDs, contact names, participant identifiers, tracked status, and last activity. Handler is a thin wrapper over `db.ListConversations`; no placeholder text. | `internal/mcpserver/tools_test.go::TestTools_ListConversations_RealDB` |
+| **`MCP-02`** | `MCP` | [x] Complete | **`get_contact_dossier` Tool** | Issue #79 | Returns the current Markdown dossier, structured JSON state, and a live tail of unindexed messages. Handler wraps `db.GetContactDossier` and `db.GetDossierLiveTail`. | `internal/mcpserver/tools_test.go::TestTools_GetContactDossier_RealDB` |
+| **`MCP-03`** | `MCP` | [x] Complete | **`search_conversation_history` Tool** | Issue #79 | Executes a Hybrid RRF query across sessions with optional date bounds and returns formatted transcripts. Handler wraps `db.SearchSessionsHybrid`. | `internal/mcpserver/tools_test.go::TestTools_SearchConversationHistory_RealDB` |
+| **`MCP-04`** | `MCP` | [x] Complete | **`get_messages_around_time` Tool** | Issue #79 | Pulls verbatim message context and media OCR annotations within a time window. Handler wraps `db.GetMessagesAroundTime` and `db.GetMediaAttachmentsForMessage`. | `internal/mcpserver/tools_test.go::TestTools_GetMessagesAroundTime_RealDB` |
+| **`MCP-05`** | `MCP` | [x] Complete | **`search_shared_media` Tool** | Issue #79 | Searches media attachments by OCR text and visual descriptions. Handler wraps `db.SearchMediaAttachments`. | `internal/mcpserver/tools_test.go::TestTools_SearchSharedMedia_RealDB` |
+| **`MCP-06`** | `MCP` | [x] Complete | **`manage_tracked_contact` Tool** | Issue #79 | Enables or disables thread tracking, resets backfill state, or forces a dossier refresh. Handler wraps `db.SetConversationTracked`, `db.ResetConversationBackfill`, and `db.GetContactDossier`. | `internal/mcpserver/tools_test.go::TestTools_ManageTrackedContact_RealDB` |
 | **`TRANS-01`** | `TRANS` | [x] Complete | **Health Check Probe** | Commit `57dad5e` / PR #41, commit `151d981` | Exposes `/health` and `/healthz` returning HTTP 200 with database connectivity status and version JSON. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/obs/health_test.go::TestHealthHandler_Healthy` |
 | **`TRANS-02`** | `TRANS` | [x] Complete | **Streamable MCP & SSE Endpoints** | Commit `57dad5e` | Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
 | **`TRANS-03`** | `TRANS` | [ ] Not Started | **Briefing API & Outbound Webhook** | — | Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches a POST to `WEBHOOK_URL` when dossiers update. **Not implemented:** no briefing route exists; `WEBHOOK_URL` is read from config but never used. | None |
@@ -364,39 +364,39 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 
 ### `MCP-01`: `list_conversations` Tool
 - **Category**: `MCP` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Commit `57dad5e`)
-- **Description**: Returns all known SMS/RCS conversations with identifiers, participant lists, tracked status, and last activity timestamps.
-- **Verification**: Unit test in `internal/mcpserver/tools_test.go::TestTool_ListConversations`.
+- **Status**: `[x] Complete` (Issue #79)
+- **Description**: Returns all known SMS/RCS conversations with identifiers, participant lists, tracked status, and last activity timestamps. The handler is a thin wrapper over `internal/db` (`ListConversations`).
+- **Verification**: Integration test in `internal/mcpserver/tools_test.go::TestTools_ListConversations_RealDB` asserting seeded conversations appear in the tool output.
 
 ### `MCP-02`: `get_contact_dossier` Tool
 - **Category**: `MCP` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Commit `57dad5e`)
-- **Description**: Fetches the structured JSON state, Markdown narrative, and unindexed message tail for a tracked contact.
-- **Verification**: Unit test in `internal/mcpserver/tools_test.go::TestTool_GetContactDossier`.
+- **Status**: `[x] Complete` (Issue #79)
+- **Description**: Fetches the structured JSON state, Markdown narrative, and unindexed message tail for a tracked contact. The handler wraps `GetContactDossier` and `GetDossierLiveTail`.
+- **Verification**: Integration test in `internal/mcpserver/tools_test.go::TestTools_GetContactDossier_RealDB`.
 
 ### `MCP-03`: `search_conversation_history` Tool
 - **Category**: `MCP` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Commit `57dad5e`)
-- **Description**: Executes Hybrid RRF queries fusing vector cosine similarity and full-text BM25 rankings over session transcripts.
-- **Verification**: Unit test in `internal/mcpserver/tools_test.go::TestTool_SearchConversationHistory`.
+- **Status**: `[x] Complete` (Issue #79)
+- **Description**: Executes Hybrid RRF queries fusing vector cosine similarity and full-text BM25 rankings over session transcripts. The handler wraps `SearchSessionsHybrid`.
+- **Verification**: Integration test in `internal/mcpserver/tools_test.go::TestTools_SearchConversationHistory_RealDB`.
 
 ### `MCP-04`: `get_messages_around_time` Tool
 - **Category**: `MCP` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Commit `57dad5e`)
-- **Description**: Retrieves context windows of verbatim messages and OCR annotations surrounding a target timestamp.
-- **Verification**: Unit test in `internal/mcpserver/tools_test.go::TestTool_GetMessagesAroundTime`.
+- **Status**: `[x] Complete` (Issue #79)
+- **Description**: Retrieves context windows of verbatim messages and OCR annotations surrounding a target timestamp. The handler wraps `GetMessagesAroundTime` and `GetMediaAttachmentsForMessage`.
+- **Verification**: Integration test in `internal/mcpserver/tools_test.go::TestTools_GetMessagesAroundTime_RealDB`.
 
 ### `MCP-05`: `search_shared_media` Tool
 - **Category**: `MCP` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Commit `57dad5e`)
-- **Description**: Queries image attachments by OCR extracted text and visual scene descriptions.
-- **Verification**: Unit test in `internal/mcpserver/tools_test.go::TestTool_SearchSharedMedia`.
+- **Status**: `[x] Complete` (Issue #79)
+- **Description**: Queries image attachments by OCR extracted text and visual scene descriptions. The handler wraps `SearchMediaAttachments`.
+- **Verification**: Integration test in `internal/mcpserver/tools_test.go::TestTools_SearchSharedMedia_RealDB`.
 
 ### `MCP-06`: `manage_tracked_contact` Tool
 - **Category**: `MCP` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Commit `57dad5e`)
-- **Description**: Enables/disables thread tracking, initiates historical backfill passes, or forces immediate dossier reconciliation.
-- **Verification**: Unit test in `internal/mcpserver/tools_test.go::TestTool_ManageTrackedContact`.
+- **Status**: `[x] Complete` (Issue #79)
+- **Description**: Enables/disables thread tracking, resets historical backfill state, or forces an immediate dossier re-read. The handler wraps `SetConversationTracked`, `ResetConversationBackfill`, and `GetContactDossier`.
+- **Verification**: Integration test in `internal/mcpserver/tools_test.go::TestTools_ManageTrackedContact_RealDB` asserting database state deltas.
 
 ### `TRANS-01`: Health Check Probe
 - **Category**: `TRANS` (`PositiveFeature`)
@@ -448,7 +448,7 @@ row must now point at a test that exists; CI enforces this via `scripts/check_tr
 | `SEC-01` | Complete | Partial | Decrypt/hash/store tested; no ingestion caller |
 | `HARN-01` | Complete | Partial | Mock server tests itself; no daemon/`libgm` consumer |
 | `AUTH-04` | Complete | Partial | Success path needs live smoke; proof path did not exist |
-| `MCP-01`..`MCP-06` | Complete | Partial | Tools registered, but every handler is a stub |
+| `MCP-01`..`MCP-06` | Partial | Complete | Handlers rewritten as DB-backed wrappers over `internal/db`; real-Postgres proof tests added (Issue #79) |
 | `TRANS-03` | Complete | Not Started | No briefing route and no webhook dispatch |
 | `UI-02`,`UI-05` | Complete | Partial | Panels work; embedded MCP calls resolve to stubs |
 | `UI-01`,`DAEMON-01`,`TRANS-01`,`TRANS-02` | Complete | Complete | Status correct; proof paths corrected to existing tests |
