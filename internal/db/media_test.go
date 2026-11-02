@@ -98,6 +98,80 @@ func TestMediaAttachments_CRUDAndQuery(t *testing.T) {
 	emptyList, err := database.GetMediaAttachmentsForMessage(ctx, "nonexistent-msg-id")
 	require.NoError(t, err)
 	assert.Empty(t, emptyList)
+
+	// 5. Insert unprocessed attachment and test GetUnprocessedMediaAttachments & UpdateMediaAttachmentVision
+	unprocessedMedia := &db.MediaAttachment{
+		MessageID:       msgID,
+		ConversationID:  convID,
+		SHA256Hash:      "abcd000000000000000000000000000000000000000000000000000000001234",
+		RelativePath:    "ab/cd/abcd00000000000000000000000000000000000000000000000000001234.jpg",
+		MimeType:        "image/jpeg",
+		FileSizeBytes:   1024,
+		VisionProcessed: false,
+	}
+	err = database.UpsertMediaAttachment(ctx, unprocessedMedia)
+	require.NoError(t, err)
+	assert.True(t, unprocessedMedia.ID > 0)
+
+	// Query unprocessed
+	unprocessedList, err := database.GetUnprocessedMediaAttachments(ctx, convID, 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, unprocessedList)
+	var foundID int64
+	for _, item := range unprocessedList {
+		if item.ID == unprocessedMedia.ID {
+			foundID = item.ID
+			break
+		}
+	}
+	assert.Equal(t, unprocessedMedia.ID, foundID)
+
+	// Update vision fields
+	newOCR := "EXTRACTED RECEIPT TOTAL: $42.50"
+	newDesc := "A receipt from a grocery store"
+	err = database.UpdateMediaAttachmentVision(ctx, unprocessedMedia.ID, &newOCR, &newDesc, true)
+	require.NoError(t, err)
+
+	// Update non-existent record returns ErrNotFound
+	err = database.UpdateMediaAttachmentVision(ctx, 999999999, &newOCR, &newDesc, true)
+	assert.ErrorIs(t, err, db.ErrNotFound)
+
+	// Verify no longer in unprocessed list
+	unprocessedAfter, err := database.GetUnprocessedMediaAttachments(ctx, convID, 10)
+	require.NoError(t, err)
+	for _, item := range unprocessedAfter {
+		assert.NotEqual(t, unprocessedMedia.ID, item.ID)
+	}
+
+	// Verify updated fields in message attachments
+	updatedAtts, err := database.GetMediaAttachmentsForMessage(ctx, msgID)
+	require.NoError(t, err)
+	var updatedItem *db.MediaAttachment
+	for _, it := range updatedAtts {
+		if it.ID == unprocessedMedia.ID {
+			itemCopy := it
+			updatedItem = &itemCopy
+			break
+		}
+	}
+	require.NotNil(t, updatedItem)
+	assert.True(t, updatedItem.VisionProcessed)
+	require.NotNil(t, updatedItem.OCRText)
+	assert.Equal(t, newOCR, *updatedItem.OCRText)
+	require.NotNil(t, updatedItem.VisualDescription)
+	assert.Equal(t, newDesc, *updatedItem.VisualDescription)
+}
+
+func TestMediaAttachments_NilDBValidation(t *testing.T) {
+	var database *db.DB
+	ctx := context.Background()
+
+	err := database.UpdateMediaAttachmentVision(ctx, 1, nil, nil, true)
+	assert.Error(t, err)
+
+	list, err := database.GetUnprocessedMediaAttachments(ctx, "", 10)
+	assert.Error(t, err)
+	assert.Nil(t, list)
 }
 
 func TestMessages_CountUnindexedAndFTS(t *testing.T) {
