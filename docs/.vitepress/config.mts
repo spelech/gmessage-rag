@@ -190,7 +190,18 @@ export default withMermaid(
     },
 
     mermaid: {
-      theme: "default",
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#4285F4",
+        primaryTextColor: "#ffffff",
+        primaryBorderColor: "#1A73E8",
+        lineColor: "#5f6368",
+        secondaryColor: "#34A853",
+        tertiaryColor: "#FBBC05",
+        noteBkgColor: "#FBBC05",
+        errorBkgColor: "#EA4335",
+        fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+      },
     },
   })
 );

@@ -1,0 +1,71 @@
+/*
+ * Google brand palette for the gmessages-rag documentation site (UI-06 / #71).
+ *
+ * Blue   #4285F4  -> brand / primary
+ * Green  #34A853  -> tip / success
+ * Yellow #FBBC05  -> warning / highlight
+ * Red    #EA4335  -> danger / error
+ *
+ * Light-mode accents use the 600-weight of each hue for AA contrast on white.
+ */
+
+:root {
+  /* Brand: Google Blue */
+  --vp-c-brand-1: #1A73E8;
+  --vp-c-brand-2: #4285F4;
+  --vp-c-brand-3: #4285F4;
+  --vp-c-brand-soft: rgba(66, 133, 244, 0.14);
+  --vp-c-brand-softer: rgba(66, 133, 244, 0.07);
+
+  /* Tip: Google Green */
+  --vp-c-tip-1: #188038;
+  --vp-c-tip-2: #34A853;
+  --vp-c-tip-3: #34A853;
+  --vp-c-tip-soft: rgba(52, 168, 83, 0.14);
+
+  /* Warning: Google Yellow */
+  --vp-c-warning-1: #B06000;
+  --vp-c-warning-2: #FBBC05;
+  --vp-c-warning-3: #FBBC05;
+  --vp-c-warning-soft: rgba(251, 188, 5, 0.18);
+
+  /* Danger: Google Red */
+  --vp-c-danger-1: #C5221F;
+  --vp-c-danger-2: #EA4335;
+  --vp-c-danger-3: #EA4335;
+  --vp-c-danger-soft: rgba(234, 67, 53, 0.14);
+
+  /* Four-color gradient wordmark on the home hero */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    110deg,
+    #4285F4 0%,
+    #34A853 34%,
+    #FBBC05 66%,
+    #EA4335 100%
+  );
+}
+
+.dark {
+  /* Lighter Google tints for dark-mode contrast */
+  --vp-c-brand-1: #8AB4F8;
+  --vp-c-brand-2: #669DF6;
+  --vp-c-brand-3: #8AB4F8;
+  --vp-c-brand-soft: rgba(138, 180, 248, 0.16);
+  --vp-c-brand-softer: rgba(138, 180, 248, 0.08);
+
+  --vp-c-tip-1: #81C995;
+  --vp-c-tip-2: #34A853;
+  --vp-c-tip-3: #81C995;
+  --vp-c-tip-soft: rgba(129, 201, 149, 0.16);
+
+  --vp-c-warning-1: #FDD663;
+  --vp-c-warning-2: #FBBC05;
+  --vp-c-warning-3: #FDD663;
+  --vp-c-warning-soft: rgba(253, 214, 99, 0.16);
+
+  --vp-c-danger-1: #F28B82;
+  --vp-c-danger-2: #EA4335;
+  --vp-c-danger-3: #F28B82;
+  --vp-c-danger-soft: rgba(242, 139, 130, 0.16);
+}
