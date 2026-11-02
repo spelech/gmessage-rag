@@ -18,6 +18,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`TRANS`** | Web server (`/health`, `/pair`, `/api/v1/*`), Home Assistant briefing API, outbound webhooks | `PositiveFeature` / `FailClosedGuardrail` |
 | **`PIPE`** | Vision OCR sidecar, 2-hour sessionizer, 30m idle debouncer, and Living Dossier LLM reconciliation | `PositiveFeature` / `FailClosedGuardrail` |
 | **`UI`** | Web Management Dashboard, parameter tuner, live test bench & pairing console | `PositiveFeature` / `FailClosedGuardrail` |
+| **`TEST`** | Controls-grade end-to-end browser automation, layout auditing, and regression fixtures | `PositiveFeature` / `NonFunctional` |
 | **`NOTIF`** | Universal multi-channel push notifications (Apprise & ntfy) and watchdog monitoring | `PositiveFeature` / `FailClosedGuardrail` |
 | **`OBS`** | Observability, Prometheus metrics registry (`/metrics`), and health check probes (`/healthz`) | `PositiveFeature` / `FailClosedGuardrail` |
 | **`HARN`** | Controls-grade in-memory simulation test harness and disturbance injection suite | `PositiveFeature` / `FailClosedGuardrail` |
@@ -61,6 +62,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/ui_test.go::TestUI_DashboardRendering` |
 | **`UI-02`** | `UI` | [x] Complete | **Interactive Test Bench (Context-Cortex style)** | PR #45, commit `91e8fcc` | Developer harness in web UI to execute ad-hoc Hybrid RRF queries, test MCP tools with live responses, inspect XML boundaries, and review dossier history diffs. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
 | **`UI-03`** | `UI` | [x] Complete | **Parameter & Pipeline Tuner** | PR #44, commit `2407ed6` | Web interface to view and hot-tune pipeline parameters (debouncer idle duration, RRF $k$ factor, OCR model endpoint, backfill window). | `internal/config/tuner_test.go::TestRuntimeTuner_ConcurrentUpdatesAndNotification` |
+| **`TEST-04`** | `TEST` | [x] Complete | **Headless Browser Layout Audit Harness** | Current PR | Pure Go chromedp headless browser automation test auditing embedded dashboard across mobile/tablet/desktop viewports for horizontal overflow, touch target sizes, light/dark screenshots, and DOM interactivity. | `internal/web/layout_audit_test.go::TestLayoutAudit_HeadlessChrome` |
 | **`CLEANUP-01`**| `CLEANUP` | [x] Complete | **Dead Code & Error Handling Hardening** | Issue #42, commit `c279ebd` | Purged redundant models, eliminated ignored errors, guaranteed strict error propagation on file operations, and added `goleak` goroutine lifecycle validation. | Full package test suite & `go test -race ./...` |
 | **`DOCKER-01`** | `DOCKER` | [x] Complete | **Hardened Non-Root Container & PUID/PGID** | Issue #42, commit `c279ebd` | Hardened multi-stage non-root container with `PUID`/`PGID` permission handling, `.env.example` alignment, and immutable volume mounts. | `Dockerfile`, `docker-compose.yml` |
 | **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/serve_test.go::TestBuildServeMux_Wiring` |
@@ -265,6 +267,19 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Status**: `[x] Complete` (PR #44, commit `2407ed6`)
 - **Description**: Web interface to inspect configuration and hot-tune operational parameters (such as debouncer idle window, RRF fusion $k$ factor, Vision OCR prompts, and backfill page limits) without restarting the container.
 - **Verification**: Unit tests asserting parameter update endpoints persist runtime overrides and notify active workers.
+
+### `TEST-04`: Headless Browser Layout, Visual Regression, and Ergonomics Audit Harness
+- **Category**: `TEST` (`PositiveFeature`)
+- **Status**: `[x] Complete` (Current PR)
+- **Description**: Pure Go end-to-end browser automation and layout audit test harness using `github.com/chromedp/chromedp` to audit the embedded Web Management Dashboard for usability, visual regressions, and viewport ergonomics without requiring Node.js or npm:
+  1. Starts a live `httptest.Server` wrapping `NewDashboardHandler`.
+  2. Runs headless Chrome/Chromium across viewports: Mobile (375x667), Tablet (768x1024), and Desktop (1440x900).
+  3. Asserts zero horizontal scrolling (`scrollWidth <= innerWidth`).
+  4. Asserts interactive touch targets bounding box $\ge 24\text{px}$ ($\ge 44\text{px}$ on mobile).
+  5. Captures real screenshots (`chromedp.FullScreenshot`) in light/dark contexts to `assets/screenshots/`.
+  6. Verifies DOM interactivity and contact tracking update roundtrip.
+  7. Gracefully skips if Chromium is unavailable in the environment.
+- **Verification**: `internal/web/layout_audit_test.go::TestLayoutAudit_HeadlessChrome` with `go test -race`.
 
 ### `CLEANUP-01`: Dead Code & Error Handling Hardening
 - **Category**: `CLEANUP` (`NonFunctional`)
