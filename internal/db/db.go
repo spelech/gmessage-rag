@@ -58,6 +58,11 @@ func Connect(ctx context.Context, databaseURL string) (*DB, error) {
 	return &DB{Pool: pool}, nil
 }
 
+// New instantiates a DB connection pool (alias for Connect).
+func New(ctx context.Context, databaseURL string) (*DB, error) {
+	return Connect(ctx, databaseURL)
+}
+
 // Close closes the underlying connection pool.
 func (db *DB) Close() {
 	if db.Pool != nil {

@@ -16,5 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `scripts/commit.sh` enforcing Git Flow branch protection and Conventional Commits.
 - Implemented `internal/mcpserver` adhering strictly to the `2026-07-28` Model Context Protocol (MCP) specification with native `ping` JSON-RPC method, `Mcp-Protocol-Version: 2026-07-28` response header, Streamable HTTP (`POST /mcp`), Server-Sent Events (`GET /sse`), stdio transport, and prompt injection XML boundary guardrails (`GUARD-01`, `GUARD-02`, `MCP-00`).
 - Implemented `internal/gm` (`libgm` client wrapper, dual QR terminal & Web pairing, microsecond/millisecond timestamp magnitude normalization, direction resolution, and atomic POSIX 0600 session token persistence resolving Issue #7).
+- Implemented `internal/db/sessions.go` (2-hour session window grouping, calendar-anchored transcript rendering, and Hybrid RRF Reciprocal Rank Fusion search query CTE resolving Issue #5).
+
 
 
