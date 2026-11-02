@@ -264,6 +264,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Name:              "gmessages-rag",
 		Version:           "0.1.0",
 		EnableSendMessage: cfg.EnableMCPSendMessage,
+		Database:          database,
+		AccessToken:       cfg.MCPAccessToken,
 	})
 
 	tuner := config.NewRuntimeTuner(config.TunerSettings{

@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // UpsertMediaAttachment inserts a media attachment record.
@@ -61,6 +63,44 @@ ORDER BY id ASC;
 	}
 	defer rows.Close()
 
+	return scanMediaAttachments(rows)
+}
+
+// SearchMediaAttachments searches media attachments by OCR text or visual description.
+// An empty conversationID searches every conversation; an empty query matches all rows.
+func (d *DB) SearchMediaAttachments(ctx context.Context, conversationID, query string, limit int) ([]MediaAttachment, error) {
+	if d == nil || d.Pool == nil {
+		return nil, fmt.Errorf("database pool is not connected")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	const searchMediaSQL = `
+SELECT
+    id, message_id, conversation_id, sha256_hash, relative_path, mime_type,
+    file_size_bytes, width, height, ocr_text, visual_description,
+    vision_processed, created_at
+FROM media_attachments
+WHERE ($1 = '' OR conversation_id = $1)
+  AND (
+    ($2 = '' OR ocr_text ILIKE '%' || $2 || '%')
+    OR ($2 = '' OR visual_description ILIKE '%' || $2 || '%')
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT $3;
+`
+
+	rows, err := d.Pool.Query(ctx, searchMediaSQL, conversationID, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search media attachments: %w", err)
+	}
+	defer rows.Close()
+
+	return scanMediaAttachments(rows)
+}
+
+func scanMediaAttachments(rows pgx.Rows) ([]MediaAttachment, error) {
 	var list []MediaAttachment
 	for rows.Next() {
 		var m MediaAttachment
@@ -158,32 +198,5 @@ LIMIT $1;
 	}
 	defer rows.Close()
 
-	var list []MediaAttachment
-	for rows.Next() {
-		var m MediaAttachment
-		if err := rows.Scan(
-			&m.ID,
-			&m.MessageID,
-			&m.ConversationID,
-			&m.SHA256Hash,
-			&m.RelativePath,
-			&m.MimeType,
-			&m.FileSizeBytes,
-			&m.Width,
-			&m.Height,
-			&m.OCRText,
-			&m.VisualDescription,
-			&m.VisionProcessed,
-			&m.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan unprocessed media attachment row: %w", err)
-		}
-		list = append(list, m)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate unprocessed media attachment rows: %w", err)
-	}
-
-	return list, nil
+	return scanMediaAttachments(rows)
 }

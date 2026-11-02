@@ -47,7 +47,8 @@ func TestTestBench_MCPToolInvocation(t *testing.T) {
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
-	// 1. Nominal MCP tool execution: list_conversations
+	// 1. MCP tool invocation: with no database wired into the MCP server the call
+	// fails closed and returns a structured error result over the test bench.
 	reqBody, _ := json.Marshal(web.MCPTestRequest{
 		Tool:      "list_conversations",
 		Arguments: json.RawMessage(`{"limit": 10}`),
@@ -57,7 +58,7 @@ func TestTestBench_MCPToolInvocation(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected HTTP 200 for nominal MCP call, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected HTTP 200 for MCP call, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var res mcpserver.CallToolResult
@@ -67,8 +68,11 @@ func TestTestBench_MCPToolInvocation(t *testing.T) {
 	if len(res.Content) == 0 {
 		t.Fatalf("expected tool content returned")
 	}
-	if !strings.Contains(res.Content[0].Text, "list_conversations") {
-		t.Errorf("expected list_conversations text in result, got: %s", res.Content[0].Text)
+	if !res.IsError {
+		t.Fatalf("expected fail-closed error result without a database, got: %s", res.Content[0].Text)
+	}
+	if !strings.Contains(res.Content[0].Text, "database is not configured") {
+		t.Errorf("expected database configuration error text, got: %s", res.Content[0].Text)
 	}
 
 	// 2. Unknown tool name error handling
