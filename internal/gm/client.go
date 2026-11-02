@@ -46,6 +46,7 @@ type Client struct {
 	pairDone      chan struct{}
 	lastPairError error
 	currentQR     string
+	currentEmoji  string
 }
 
 // NewClient initializes a new GM Client wrapper.

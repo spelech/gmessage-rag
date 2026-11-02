@@ -84,4 +84,3 @@ type MediaAttachment struct {
 	VisionProcessed   bool      `json:"vision_processed"`
 	CreatedAt         time.Time `json:"created_at"`
 }
-
