@@ -92,7 +92,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`MCP-06`** | `MCP` | [x] Complete | **`manage_tracked_contact` Tool** | Issue #79 | Enables or disables thread tracking, resets backfill state, or forces a dossier refresh. Handler wraps `db.SetConversationTracked`, `db.ResetConversationBackfill`, and `db.GetContactDossier`. | `internal/mcpserver/tools_test.go::TestTools_ManageTrackedContact_RealDB` |
 | **`TRANS-01`** | `TRANS` | [x] Complete | **Health Check Probe** | Commit `57dad5e` / PR #41, commit `151d981` | Exposes `/health` and `/healthz` returning HTTP 200 with database connectivity status and version JSON. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/obs/health_test.go::TestHealthHandler_Healthy` |
 | **`TRANS-02`** | `TRANS` | [x] Complete | **Streamable MCP & SSE Endpoints** | Commit `57dad5e` | Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
-| **`TRANS-03`** | `TRANS` | [ ] Not Started | **Briefing API & Outbound Webhook** | — | Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches a POST to `WEBHOOK_URL` when dossiers update. **Not implemented:** no briefing route exists; `WEBHOOK_URL` is read from config but never used. | None |
+| **`TRANS-03`** | `TRANS` | [x] Complete | **Briefing API & Outbound Webhook** | Issue #80 | Exposes `/api/v1/briefing` and `/api/v1/briefing/today` returning per tracked contact what changed since a caller-supplied `since` (RFC3339) or a default 24h lookback, sourced from `contact_dossier_history` with dossier-derived Markdown wrapped in untrusted-data boundaries. Dispatches a signed POST to `WEBHOOK_URL` (optional bearer/HMAC auth) with bounded backoff when the dossier reconciler updates a dossier. | `internal/web/briefing_test.go::TestBriefingAPI_ChangedSince`, `internal/notify/webhook_test.go::TestWebhookDispatch_RetriesOnFailure`, `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` |
 | **`TRANS-04`** | `TRANS` | [x] Complete | **Configurable Diagnostics Alerts** | PR #35, commit `796debd` | Monitors phone responsiveness (`PhoneNotResponding`), but alerts only if configured (`NOTIFY_ON_PHONE_DISCONNECT=true`) and debounced by $N$ minutes. | `internal/notify/watchdog_test.go::TestWatchdog_PhoneDisconnect_GracePeriodTrigger` |
 | **`INT-01`** | `INT` | [ ] Deferred | **Home Assistant MQTT Bridge** | Held (Issue #32) | Supplements outbound webhooks with an optional MQTT client bridge. **Note:** Deferred/held in favor of universal Apprise/ntfy push alerting and Prometheus metrics. | `internal/mqtt` baseline |
 
@@ -412,9 +412,9 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 
 ### `TRANS-03`: Briefing API & Outbound Webhook
 - **Category**: `TRANS` (`PositiveFeature`)
-- **Status**: `[ ] Not Started`
-- **Description**: Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches POST to `WEBHOOK_URL` when dossiers update. **Not implemented:** no briefing route exists and `WEBHOOK_URL` is never dispatched.
-- **Verification**: None.
+- **Status**: `[x] Complete` (Issue #80)
+- **Description**: Exposes `/api/v1/briefing` and `/api/v1/briefing/today` for Home Assistant REST sensors. The endpoint returns, per tracked contact, what changed since a caller-supplied `since` timestamp (RFC3339) or a default 24-hour lookback. Change records are built from `contact_dossier_history` (the preceding version snapshot) and the current `contact_dossiers` state. Dossier-derived Markdown is wrapped in fail-closed untrusted-data boundaries. On a reconciler update, the daemon dispatches a JSON POST to `WEBHOOK_URL` with bounded exponential backoff, optional bearer token (`WEBHOOK_AUTH_TOKEN`) and optional HMAC-SHA256 signature (`WEBHOOK_HMAC_SECRET`).
+- **Verification**: `internal/web/briefing_test.go::TestBriefingAPI_ChangedSince` (real Postgres, proves the response reflects real history changes and boundary wrapping) and `internal/notify/webhook_test.go::TestWebhookDispatch_RetriesOnFailure` (httptest contract stub proves retried deliveries). Route wiring in `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`.
 
 ### `TRANS-04`: Configurable Diagnostics & Apprise/ntfy Alerts
 - **Category**: `TRANS` (`PositiveFeature`)
@@ -464,6 +464,7 @@ implementation and proof now exist.
 | :--- | :--- | :--- | :--- |
 | `PIPE-03` | Not Started | `[x] Complete` | Living Dossier reconciler landed: `internal/pipeline/dossier.go`, `internal/pipeline/dossier_state.go`; proof `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` |
 | `PIPE-04` | Partial | `[x] Complete` | Contact enrichment consumer landed: `internal/pipeline/contacts.go`; proof `internal/pipeline/contacts_test.go::TestContactsSync_DossierEnrichment` |
+<<<<<<< HEAD
 
 ### 2026-11-02 Resolutions (Issue #81)
 
@@ -472,3 +473,9 @@ implementation and proof now exist.
 | `PIPE-02` | Partial | `[x] Complete` | Daemon `OnFlush` runs Vision OCR, sessionization, and Dossier reconciliation; proof `internal/pipeline/debouncer_test.go::TestDebouncer_ResetOnNewMessage` |
 | `PIPE-05` | Partial | `[x] Complete` | `gm.Client` forwards `*gmproto.TypingData` to `debouncer.RecordTypingType` via `OnTypingActivity`; proofs `internal/pipeline/debouncer_test.go::TestDebouncer_TypingExtendsWindow`, `internal/gm/client_test.go::TestClient_TypingEventDispatch` |
 | `SEC-01` | Partial | `[x] Complete` | ETL ingestion persists decrypted media through `pipeline.MediaIngestor` → `db.UpsertMediaAttachment`; proofs `internal/gm/media_test.go::TestMediaDecryption_AESGCM`, `internal/pipeline/media_test.go::TestMediaIngestor_PersistsDecryptedMedia` |
+
+### 2026-11-02 Resolutions (Issue #80)
+
+| Requirement | Audit State | Current State | Resolution |
+| :--- | :--- | :--- | :--- |
+| `TRANS-03` | Not Started | `[x] Complete` | Briefing API and outbound webhook landed (Issue #80): `internal/web/briefing.go`, `internal/notify/webhook.go`, `internal/db/briefing.go`; proofs `internal/web/briefing_test.go::TestBriefingAPI_ChangedSince` and `internal/notify/webhook_test.go::TestWebhookDispatch_RetriesOnFailure` |
