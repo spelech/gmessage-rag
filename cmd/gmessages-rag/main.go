@@ -34,8 +34,13 @@ func init() {
 	rootCmd.AddCommand(pairCmd)
 }
 
+// Execute executes the root CLI command.
+func Execute() error {
+	return rootCmd.Execute()
+}
+
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

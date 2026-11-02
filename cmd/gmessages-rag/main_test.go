@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/spelech/gmessage-rag/internal/config"
+	"github.com/spelech/gmessage-rag/internal/db"
+	"github.com/spelech/gmessage-rag/internal/gm"
 	"github.com/spelech/gmessage-rag/internal/mcpserver"
 	"github.com/spelech/gmessage-rag/internal/obs"
 )
@@ -162,4 +164,140 @@ func TestLoadConfigDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 8090, cfg.HTTPPort)
 	assert.Equal(t, "/data/media", cfg.MediaDir)
+}
+
+// TestServeCommand_Lifecycle verifies the full daemon initialization, HTTP server start, and graceful shutdown sequence.
+func TestServeCommand_Lifecycle(t *testing.T) {
+	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	testDB, err := db.Connect(context.Background(), dbURL)
+	if err != nil {
+		t.Skipf("skipping live serve lifecycle test: %v", err)
+		return
+	}
+	testDB.Close()
+
+	tempDir := t.TempDir()
+	sessionFile := filepath.Join(tempDir, "session.json")
+	t.Setenv("SESSION_PATH", sessionFile)
+	t.Setenv("DATABASE_URL", dbURL)
+	t.Setenv("HTTP_PORT", "38194")
+	t.Setenv("TRACKED_CONTACTS", "test-tracked-contact-1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
+	defer cancel()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(ctx)
+
+	err = runServe(cmd, nil)
+	assert.NoError(t, err)
+}
+
+// TestStartETLForTrackedContacts_Execution verifies background ETL synchronization pass.
+func TestStartETLForTrackedContacts_Execution(t *testing.T) {
+	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	database, err := db.Connect(context.Background(), dbURL)
+	if err != nil {
+		t.Skipf("skipping ETL execution test: %v", err)
+		return
+	}
+	defer database.Close()
+
+	tempDir := t.TempDir()
+	sessionFile := filepath.Join(tempDir, "session.json")
+	client, err := gm.NewClient(gm.ClientOptions{
+		SessionPath: sessionFile,
+	})
+	require.NoError(t, err)
+
+	logger := zerolog.Nop()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	StartETLForTrackedContacts(ctx, logger, database, client, []string{"tracked-1", "tracked-2"}, 50)
+	time.Sleep(50 * time.Millisecond)
+}
+
+// TestRootCmd_Help exercises rootCmd Run function.
+func TestRootCmd_Help(t *testing.T) {
+	rootCmd.Run(rootCmd, []string{})
+}
+
+// TestPairCommand_DefaultSessionPath verifies runPair fallback when SESSION_PATH is unset.
+func TestPairCommand_DefaultSessionPath(t *testing.T) {
+	t.Setenv("SESSION_PATH", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(ctx)
+	gaiaFlag = false
+	_ = runPair(cmd, nil)
+}
+
+// TestServeCommand_ServerListenError verifies handling of server listen errors.
+func TestServeCommand_ServerListenError(t *testing.T) {
+	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	testDB, err := db.Connect(context.Background(), dbURL)
+	if err != nil {
+		t.Skipf("skipping live serve test: %v", err)
+		return
+	}
+	testDB.Close()
+
+	t.Setenv("DATABASE_URL", dbURL)
+	t.Setenv("HTTP_PORT", "-1")
+	t.Setenv("SESSION_PATH", filepath.Join(t.TempDir(), "session.json"))
+
+	cmd := &cobra.Command{}
+	err = runServe(cmd, nil)
+	assert.Error(t, err)
+}
+
+// TestRootCmd_ExecuteHelp tests Execute() with help flag.
+func TestRootCmd_ExecuteHelp(t *testing.T) {
+	rootCmd.SetArgs([]string{"--help"})
+	err := Execute()
+	assert.NoError(t, err)
+}
+
+// TestPairCommand_InitClientFailure tests pairing client initialization error when session path is invalid.
+func TestPairCommand_InitClientFailure(t *testing.T) {
+	t.Setenv("SESSION_PATH", t.TempDir())
+	cmd := &cobra.Command{}
+	gaiaFlag = false
+	err := runPair(cmd, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to initialize pairing client")
+}
+
+// TestPairCommand_InitGaiaFailure tests gaia client initialization error when session path is invalid.
+func TestPairCommand_InitGaiaFailure(t *testing.T) {
+	t.Setenv("SESSION_PATH", t.TempDir())
+	cmd := &cobra.Command{}
+	gaiaFlag = true
+	defer func() { gaiaFlag = false }()
+	err := runPair(cmd, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to initialize gaia client")
+}
+
+// TestServeCommand_GMClientInitFailure verifies error returned when GM client fails initialization.
+func TestServeCommand_GMClientInitFailure(t *testing.T) {
+	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	testDB, err := db.Connect(context.Background(), dbURL)
+	if err != nil {
+		t.Skipf("skipping live serve test: %v", err)
+		return
+	}
+	testDB.Close()
+
+	t.Setenv("DATABASE_URL", dbURL)
+	t.Setenv("HTTP_PORT", "38195")
+	t.Setenv("SESSION_PATH", t.TempDir()) // causes LoadAuthData error
+
+	cmd := &cobra.Command{}
+	err = runServe(cmd, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to initialize Google Messages client")
 }

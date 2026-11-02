@@ -123,7 +123,11 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	logger := log.With().Str("component", "daemon").Logger()
@@ -174,8 +178,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer debouncer.Close()
 
 	// 6. Initialize Google Messages client
+	sessionPath := os.Getenv("SESSION_PATH")
+	if sessionPath == "" {
+		sessionPath = "/data/auth/session.json"
+	}
 	gmClient, err := gm.NewClient(gm.ClientOptions{
-		SessionPath: "/data/auth/session.json",
+		SessionPath: sessionPath,
 		Logger:      logger.With().Str("component", "libgm").Logger(),
 		OnConversationActive: func(conversationID string) {
 			debouncer.RecordEvent(conversationID, pipeline.EventInboundMessage)
