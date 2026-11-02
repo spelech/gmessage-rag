@@ -36,6 +36,7 @@ func NewDashboardHandler(database *db.DB, gmClient *gm.Client) http.Handler {
 // - POST /api/v1/contacts/track
 // - GET /api/v1/tuner
 // - POST /api/v1/tuner
+// - GET /api/v1/briefing and GET /api/v1/briefing/today
 // - GET /pair (QR pairing visualization via gm.NewPairingHandler)
 func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner) http.Handler {
 	mux := http.NewServeMux()
@@ -46,6 +47,8 @@ func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *c
 	mux.HandleFunc("/api/v1/contacts", api.HandleContacts)
 	mux.HandleFunc("/api/v1/contacts/track", api.HandleTrackContact)
 	mux.HandleFunc("/api/v1/tuner", api.HandleTuner)
+	mux.HandleFunc("/api/v1/briefing", api.HandleBriefing)
+	mux.HandleFunc("/api/v1/briefing/today", api.HandleBriefing)
 
 	// Pairing QR visualization endpoint
 	if gmClient != nil {

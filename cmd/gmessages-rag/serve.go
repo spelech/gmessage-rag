@@ -137,6 +137,34 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 	}()
 }
 
+// dispatchDossierWebhook delivers a dossier update event with a bounded timeout. Failures are
+// logged but never abort the flush, because the dossier is already persisted.
+// Requirement ID: TRANS-03
+func dispatchDossierWebhook(ctx context.Context, logger zerolog.Logger, dispatcher *notify.WebhookDispatcher, dossier *db.ContactDossier) {
+	if dispatcher == nil || !dispatcher.Enabled() || dossier == nil {
+		return
+	}
+
+	webhookCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	event := notify.DossierWebhookEvent{
+		Event:           "dossier.updated",
+		ConversationID:  dossier.ConversationID,
+		ContactName:     dossier.ContactName,
+		Version:         dossier.Version,
+		ChangedAt:       dossier.UpdatedAt,
+		StructuredState: dossier.StructuredState,
+		Markdown:        dossier.MarkdownContent,
+	}
+
+	if err := dispatcher.DispatchDossierUpdate(webhookCtx, event); err != nil {
+		logger.Warn().Err(err).Str("conversation_id", dossier.ConversationID).Msg("Dossier webhook dispatch failed")
+		return
+	}
+	logger.Info().Str("conversation_id", dossier.ConversationID).Int("version", dossier.Version).Msg("Dispatched dossier webhook")
+}
+
 func runServe(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
@@ -179,6 +207,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		NotifyOnPhoneDisconnect: cfg.NotifyOnPhoneDisconnect,
 		GracePeriod:             time.Duration(cfg.PhoneDisconnectGraceMinutes) * time.Minute,
 		Logger:                  logger.With().Str("component", "watchdog").Logger(),
+	})
+
+	webhookDispatcher := notify.NewWebhookDispatcher(notify.WebhookConfig{
+		URL:         cfg.WebhookURL,
+		BearerToken: cfg.WebhookAuthToken,
+		HMACSecret:  cfg.WebhookHMACSecret,
 	})
 
 	// 5. Initialize Vision Service, LLM Client, Sessionizer & Debouncer
@@ -272,6 +306,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			if outcome != nil && outcome.Changed {
 				logger.Info().Str("conversation_id", conversationID).Int("version", outcome.Dossier.Version).Msg("Reconciled Living Dossier on flush")
+				dispatchDossierWebhook(flushCtx, logger, webhookDispatcher, outcome.Dossier)
 			}
 			return nil
 		},
