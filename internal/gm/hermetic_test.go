@@ -43,8 +43,11 @@ func init() {
 		logger zerolog.Logger,
 		settings exhttp.ClientSettings,
 	) *libgm.Client {
-		settings.TransportOverride = func(exhttp.ClientSettings) http.RoundTripper {
-			return denyNetworkTransport{}
+		// Respect an explicitly provided transport (e.g. the in-process emulator in HARN-02).
+		if settings.TransportOverride == nil {
+			settings.TransportOverride = func(exhttp.ClientSettings) http.RoundTripper {
+				return denyNetworkTransport{}
+			}
 		}
 		return base(ad, pk, logger, settings)
 	}

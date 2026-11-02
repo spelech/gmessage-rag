@@ -58,7 +58,9 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`SEC-02`** | `SEC` | [x] Complete | **Full-Resolution Media Retrieval** | PR #38, commit `8d5b7e4` | When opted-in (`PULL_FULL_SIZE_MEDIA=true`), requests full-resolution image assets via `GetFullSizeImage` before running Vision OCR (default: progressive thumbnail). | `internal/gm/media_test.go::TestMediaDownload_FullSizeOption` |
 | **`SEC-03`** | `SEC` | [x] Complete | **CI Vulnerability Scanning & Race Checks** | Issue #30, commit `30b0cb6` | Enforces `govulncheck` static call-graph vulnerability scanning and `go test -race` concurrency validation in CI and Makefile targets. | GitHub Actions CI & `Makefile::vulncheck` |
 | **`HARN-01`** | `HARN` | [x] Complete | **Protobuf Disturbance Simulation Fixture** | Issue #29, commit `ecac8e2` | In-memory Google Messages WebSocket simulation server injecting synthetic protobuf frames (disconnects, media bursts, typing events, payload corruption) for deterministic CI verification. | `internal/gm/testing/mock_server_test.go::TestMockGMServer_DisturbanceRecovery` |
+| **`HARN-02`** | `HARN` | [ ] In Progress | **In-Process libgm Protocol Emulator** | Issue #62 | Hermetic, in-process implementation of the Google Messages RPC surface, wired through the `exhttp.ClientSettings.TransportOverride` injection point (no libgm fork). Covers the pairing handshake (`RegisterPhoneRelay`, `/web/config`) plus long-poll `PairEvent` injection so a full pairing completes and persists. | `internal/gm/emulator_e2e_test.go::TestEmulator_PairingCompletesPairDone` |
 | **`HARN-03`** | `HARN` | [x] Complete | **Hermetic Test Suite & Live Network Quarantine** | Issue #63 | Default `go test ./...` runs fully offline: `internal/gm` installs a deny-all HTTP transport via the `libgm` constructor seam. Live-network tests are quarantined behind the `live` build tag and `LIVE_GM_TEST=1`. | `internal/gm/hermetic_test.go::TestHermeticGuard_BlocksOutboundRegistration` |
+| **`HARN-04`** | `HARN` | [ ] In Progress | **Gated Real-Device Live Smoke Test** | Issue #65 | One opt-in end-to-end test (`//go:build live`) that pairs via Gaia emoji, asserts `0600` session persistence, connects, waits for one real inbound message, and verifies the persistence handoff. Never runs in CI. | `internal/gm/live_smoke_test.go::TestLiveSmoke_EndToEnd` |
 | **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/ui_test.go::TestUI_DashboardRendering` |
 | **`UI-02`** | `UI` | [x] Complete | **Interactive Test Bench (Context-Cortex style)** | PR #45, commit `91e8fcc` | Developer harness in web UI to execute ad-hoc Hybrid RRF queries, test MCP tools with live responses, inspect XML boundaries, and review dossier history diffs. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
 | **`UI-03`** | `UI` | [x] Complete | **Parameter & Pipeline Tuner** | PR #44, commit `2407ed6` | Web interface to view and hot-tune pipeline parameters (debouncer idle duration, RRF $k$ factor, OCR model endpoint, backfill window). | `internal/config/tuner_test.go::TestRuntimeTuner_ConcurrentUpdatesAndNotification` |
@@ -246,11 +248,27 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Description**: Provides an in-memory Google Messages WebSocket simulation harness capable of injecting raw protobuf disturbance frames (pairing challenges, sudden socket disconnections, bursts of concurrent RCS media attachments, rapid-fire typing indicators, corrupt chunks) to verify daemon resilience without physical hardware.
 - **Verification**: Simulation suite running in CI with zero hardware dependencies, verifying deterministic recovery.
 
+### `HARN-02`: In-Process libgm Protocol Emulator
+- **Category**: `HARN` (`PositiveFeature`)
+- **Status**: `[ ] In Progress` (Issue #62)
+- **Description**: An in-repo, hermetic emulator for the Google Messages HTTP RPC surface that `libgm` speaks, wired through `exhttp.ClientSettings.TransportOverride`. No `libgm` fork and no sockets. Covers the pairing handshake end to end:
+  1. `RegisterPhoneRelay` returns a valid `RegisterPhoneRelayResponse` (pairing key, token data, browser device).
+  2. `/web/config` returns a `Config` payload.
+  3. The first `ReceiveMessages` long-poll returns a `PairEvent` (`RPCPairData_Paired`) in the `[[ ... ]]` pblite stream; subsequent calls block until cancellation.
+- **Remaining scope (Issue #62)**: `RefreshPhoneRelay`, `SignInGaia`/`RegisterRefresh`, `SendMessage`/`AckMessages`, `FetchMessages` cursor paging, `ListContacts`, media upload/download, and post-pairing `WrappedMessage` event injection.
+- **Verification**: `internal/gm/emulator_e2e_test.go::TestEmulator_StartLoginReturnsQR` asserts a QR challenge; `TestEmulator_PairingCompletesPairDone` drives the real `gm.Client` event loop to a completed pairing (`pairDone` closes, session persisted with the paired browser device) with zero network access.
+
 ### `HARN-03`: Hermetic Test Suite & Live Network Quarantine
 - **Category**: `HARN` (`FailClosedGuardrail`)
 - **Status**: `[x] Complete` (Issue #63)
 - **Description**: Enforces a fully offline default test run. The `gm` package injects a deny-all `http.RoundTripper` through the `libgm` constructor seam (`newLibGMClient`) unless `GM_ALLOW_NETWORK=1`. Any accidental outbound request fails loudly with a guard error. Live-network tests (real Google registration and Gaia pairing) are quarantined behind the `live` build tag and require `LIVE_GM_TEST=1`.
 - **Verification**: `internal/gm/hermetic_test.go::TestHermeticGuard_BlocksOutboundRegistration` drives the real `libgm.StartLogin` path and asserts the guard blocks it. `TestDenyNetworkTransport_RejectsRequests` covers the transport directly. The hermetic suite runs in CI, and `make test-live-compile` validates the `live` build without executing it.
+
+### `HARN-04`: Gated Real-Device Live Smoke Test
+- **Category**: `HARN` (`PositiveFeature`)
+- **Status**: `[ ] In Progress` (Issue #65)
+- **Description**: One opt-in end-to-end test that proves the real provider handoff against an operator's Google account. It is quarantined behind the `live` build tag and runs only when `LIVE_GM_TEST=1`, `SESSION_PATH`, and `DATABASE_URL` are set. The test pairs via Gaia emoji (operator approves manually), asserts the session is persisted with POSIX `0600`, calls `Connect`, waits for one real inbound message, and verifies the persistence handoff. It never runs in CI and does not substitute for the hermetic emulator suite.
+- **Verification**: `internal/gm/live_smoke_test.go::TestLiveSmoke_EndToEnd` compiles under `-tags live` and is excluded from default CI. Manual run against the operator's number must pass; failure modes must produce actionable errors. `make test-live-compile` validates compilation.
 
 ### `UI-01`: Web Management Dashboard
 - **Category**: `UI` (`PositiveFeature`)
