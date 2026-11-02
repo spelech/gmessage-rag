@@ -1,0 +1,55 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: gmessages-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rcsrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-gmessages}
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rcsrag} -d ${POSTGRES_DB:-gmessages}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  gmessages-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gmessages-rag
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-America/Chicago}
+      DATABASE_URL: postgres://${POSTGRES_USER:-rcsrag}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-gmessages}?sslmode=disable
+      HTTP_PORT: "8090"
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      DOSSIER_MODEL: ${DOSSIER_MODEL:-anthropic/claude-3.7-sonnet}
+      SUMMARY_MODEL: ${SUMMARY_MODEL:-google/gemini-2.5-flash}
+      VISION_MODEL: ${VISION_MODEL:-google/gemini-2.5-flash}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      TRACKED_CONTACTS: ${TRACKED_CONTACTS:-}
+      SESSION_GAP_HOURS: ${SESSION_GAP_HOURS:-2}
+      DOSSIER_DEBOUNCE_MINUTES: ${DOSSIER_DEBOUNCE_MINUTES:-30}
+      MAX_BACKFILL_MESSAGES: ${MAX_BACKFILL_MESSAGES:-5000}
+      ENABLE_MCP_SEND_MESSAGE: ${ENABLE_MCP_SEND_MESSAGE:-false}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+    ports:
+      - "${HOST_PORT:-8090}:8090"
+    volumes:
+      - ./data/auth:/data/auth
+      - ./data/media:/data/media
+      - ./data/dossiers:/data/dossiers
+
+volumes:
+  pgdata:
