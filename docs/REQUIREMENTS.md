@@ -37,6 +37,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`AUTH-02`** | `AUTH` | [x] Complete | **Dual Pairing Workflow** | Commit `7456168` (PR #7) | Supports terminal QR printing (`gmessages-rag pair`) and web UI QR rendering (`GET /pair`) with live refresh. | `internal/gm/pairing_test.go::TestPairingHandlers` |
 | **`AUTH-03`** | `AUTH` | [x] Complete | **Push Alerting & Remote Re-Auth** | Commit `7456168` (PR #35) | Dispatches Apprise/ntfy push notifications when token refresh fails or session is revoked, with direct link to `/pair` web UI for mobile re-pairing. | `internal/notify/client_test.go::TestPushAlerting_ReAuthNotification` |
 | **`AUTH-04`** | `AUTH` | [x] Complete | **Single-Device Gaia Pairing (No-QR Flow)** | PR #36, commit `fd1f7a3` | Supports Google Account (Gaia) pairing via `DoGaiaPairing`: displays matching emoji challenge on web UI (`GET /pair/gaia`) or sends via Apprise push for single-device pairing without camera QR scanning. | `internal/gm/gaia_pairing_test.go::TestGaiaPairing_Success` |
+| **`AUTH-05`** | `AUTH` | [x] Complete | **Default Gaia Emoji Pairing & QR Demotion** | PR #50 | Makes Google Account (Gaia) emoji challenge pairing the default path for CLI `pair` and web `GET /pair`; demotes legacy QR code pairing behind explicit `--qr` CLI flag and `?mode=qr` / `?format=png` query parameters. | `internal/gm/pairing_test.go::TestPairingHandlers`, `cmd/gmessages-rag/main_test.go::TestPairCommand_ContextCancel` |
 | **`DB-01`** | `DB` | [x] Complete | **Schema Migration & Vector Init** | PR #4, #5, #7, #13, #15, #16 | Automatically applies embedded `001_init.sql` creating `conversations`, `conversation_sessions` (with `halfvec(1536)` HNSW), `messages`, `media_attachments`, and `contact_dossiers`. | `internal/db/db_test.go::TestDatabaseMigrations` |
 | **`DB-02`** | `DB` | [x] Complete | **Message & Reaction Ingestion** | PR #4, #5, #7, #13, #15, #16 | Normalizes microsecond/millisecond timestamps to UTC, resolves incoming/outgoing direction, and idempotently upserts messages and emoji reactions. | `internal/db/messages_test.go::TestUpsertMessages_Idempotent` |
 | **`DB-03`** | `DB` | [x] Complete | **2-Hour Session Windowing** | PR #4, #5, #7, #13, #15, #16 | Groups messages separated by $\le 2\text{ hours}$ into `conversation_sessions` with absolute calendar headers and inline media OCR annotations. | `internal/db/sessions_test.go::TestSessionGrouping_2HourGap` |
@@ -110,6 +111,16 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
   3. The daemon renders this emoji challenge on `EXTERNAL_WEB_URL/pair/gaia` or pushes the emoji name directly to the user's phone via an Apprise/ntfy push notification.
   4. The user taps the notification on their phone, opens Google Messages, and simply taps the matching emoji on their screen to grant instant pairing approval without using a camera.
 - **Verification**: Unit tests in `internal/gm/gaia_pairing_test.go` asserting emoji callback invocation, Ukey2 handshake processing, and `PairSuccessful` emission upon challenge confirmation.
+
+### `AUTH-05`: Default Gaia Emoji Pairing & QR Demotion
+- **Category**: `AUTH` (`PositiveFeature`)
+- **Status**: `[x] Complete` (PR #50)
+- **Description**: Configures Google Account (Gaia) emoji pairing as the default pairing mechanism across CLI and web endpoints, demoting QR code scanning to an explicit legacy fallback:
+  1. `gmessages-rag pair` invokes the Gaia emoji challenge flow by default.
+  2. CLI provides an explicit `--qr` flag (`gmessages-rag pair --qr`) to invoke legacy terminal QR code generation.
+  3. Web endpoint `GET /pair` serves the Gaia emoji challenge view and metadata by default.
+  4. Web endpoint serves the legacy QR workflow when `?mode=qr` or `?format=png` is explicitly provided, preserving full backwards compatibility (`AUTH-02`).
+- **Verification**: Unit and CLI tests in `internal/gm/pairing_test.go::TestPairingHandlers` and `cmd/gmessages-rag/main_test.go::TestCLI_RootCommandFlags`, `TestPairCommand_ContextCancel`, and `TestPairCommand_QRErrorHandling`.
 
 ### `DB-01`: Schema Migration & Vector Init
 - **Category**: `DB` (`PositiveFeature`)

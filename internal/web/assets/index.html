@@ -290,8 +290,11 @@
 
     <div id="qr-section" class="qr-container" style="display: none;">
       <h3>Pairing Required</h3>
-      <p style="color: var(--text-muted);">Scan this QR code with Google Messages on your mobile device (Device Pairing):</p>
-      <img id="qr-image" src="/pair?format=png" alt="Google Messages Pairing QR Code" width="240" height="240" />
+      <p style="color: var(--text-muted);">Authenticate with Google Messages using single-device Gaia emoji pairing (recommended) or legacy QR scan:</p>
+      <div style="display: flex; gap: 12px; margin-top: 8px;">
+        <a href="/pair" class="btn btn-primary" style="text-decoration: none;">Open Gaia Emoji Challenge</a>
+        <a href="/pair?mode=qr" class="btn btn-untrack" style="text-decoration: none;">View Legacy QR Code</a>
+      </div>
     </div>
 
     <div class="section-title">Tracked Contacts &amp; Conversations</div>
@@ -692,8 +695,6 @@
         } else {
           gmStatusEl.innerHTML = '<span class="badge badge-err">Unpaired</span>';
           qrSection.style.display = 'flex';
-          const qrImg = document.getElementById('qr-image');
-          qrImg.src = '/pair?format=png&t=' + Date.now();
         }
 
         document.getElementById('unindexed-count').textContent = data.unindexed_messages ?? 0;

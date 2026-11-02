@@ -182,7 +182,8 @@ func (h *PairingHandler) MarkPaired() {
 }
 
 // ServeHTTP handles GET /pair requests.
-// Returns live QR PNG if requested via ?format=png, JSON status if ?format=json, or HTML with auto-refresh otherwise.
+// Defaults to Google Account (Gaia) emoji challenge pairing (AUTH-05).
+// Legacy QR code pairing is accessible via ?mode=qr or ?format=png.
 func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -190,16 +191,94 @@ func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.mu.RLock()
-	isPaired := h.isPaired || h.client.libgmClient.IsLoggedIn()
+	isPaired := h.isPaired || (h.client != nil && h.client.libgmClient != nil && h.client.libgmClient.IsLoggedIn())
 	qrImage := h.qrImage
 	currentQR := h.currentQR
 	h.mu.RUnlock()
 
+	mode := r.URL.Query().Get("mode")
 	format := r.URL.Query().Get("format")
 
+	currentEmoji := ""
+	if h.client != nil {
+		currentEmoji = h.client.CurrentEmoji()
+	}
+
+	// If mode=qr or format=png, handle QR pairing flow (legacy fallback)
+	if mode == "qr" || format == "png" {
+		h.serveQR(w, isPaired, format, qrImage, currentQR)
+		return
+	}
+
+	// Default: Gaia Emoji Challenge mode (AUTH-05)
 	if format == "json" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
+			"mode":      "gaia",
+			"paired":    isPaired,
+			"emoji":     currentEmoji,
+			"has_emoji": len(currentEmoji) > 0,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if isPaired {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head><title>Google Messages Pairing</title></head>
+<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+  <h2>&#x2705; Google Messages is Paired!</h2>
+  <p>The session token is active and persisted to disk.</p>
+</body>
+</html>`)
+		return
+	}
+
+	if len(currentEmoji) == 0 {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head>
+  <title>Google Messages Pairing - Gaia Challenge</title>
+  <meta http-equiv="refresh" content="3">
+</head>
+<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+  <h2>Google Account (Gaia) Emoji Pairing</h2>
+  <p>Initiating pairing challenge... please wait.</p>
+  <div style="font-size: 48px; margin: 30px 0;">&#x23F3;</div>
+  <p style="color: #666;"><small>Auto-refreshing every 3 seconds until challenge arrives.</small></p>
+  <hr style="max-width: 400px; margin: 30px auto;" />
+  <p><a href="/pair?mode=qr" style="color: #2563eb; text-decoration: underline;">Switch to legacy QR pairing</a></p>
+</body>
+</html>`)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+  <title>Google Messages Pairing - Gaia Challenge</title>
+  <meta http-equiv="refresh" content="5">
+</head>
+<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+  <h2>Confirm Pairing on your Phone</h2>
+  <p>Open Google Messages on your phone &gt; Device pairing, and tap this emoji:</p>
+  <div style="font-size: 72px; margin: 24px 0; padding: 16px; background: #f1f5f9; display: inline-block; border-radius: 12px; border: 2px dashed #cbd5e1;">%s</div>
+  <p><small>This page auto-refreshes every 5 seconds until pairing completes.</small></p>
+  <hr style="max-width: 400px; margin: 30px auto;" />
+  <p><a href="/pair?mode=qr" style="color: #2563eb; text-decoration: underline;">Switch to legacy QR pairing</a></p>
+</body>
+</html>`, currentEmoji)
+}
+
+func (h *PairingHandler) serveQR(w http.ResponseWriter, isPaired bool, format string, qrImage []byte, currentQR string) {
+	if format == "json" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"mode":    "qr",
 			"paired":  isPaired,
 			"has_qr":  len(currentQR) > 0,
 			"qr_data": currentQR,
@@ -223,7 +302,6 @@ func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// HTML mode with live refresh
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if isPaired {
 		w.WriteHeader(http.StatusOK)
@@ -243,12 +321,14 @@ func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<!DOCTYPE html>
 <html>
 <head>
-  <title>Google Messages Pairing</title>
+  <title>Google Messages Pairing (Legacy QR)</title>
   <meta http-equiv="refresh" content="2">
 </head>
 <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
   <h2>Generating Pairing QR Code...</h2>
   <p>Please wait while the relay registers with Google Messages.</p>
+  <hr style="max-width: 400px; margin: 30px auto;" />
+  <p><a href="/pair" style="color: #2563eb; text-decoration: underline;">Switch to Google Account emoji challenge (recommended)</a></p>
 </body>
 </html>`)
 		return
@@ -258,16 +338,18 @@ func (h *PairingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, `<!DOCTYPE html>
 <html>
 <head>
-  <title>Google Messages Pairing</title>
+  <title>Google Messages Pairing (Legacy QR)</title>
   <meta http-equiv="refresh" content="5">
 </head>
 <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
   <h2>Scan to Pair with Google Messages</h2>
   <p>Open Google Messages on your phone &gt; Device pairing &gt; QR code scanner</p>
   <div style="margin: 20px auto;">
-    <img src="/pair?format=png" alt="Google Messages QR Code" style="border: 1px solid #ccc; padding: 10px; border-radius: 8px;" />
+    <img src="/pair?mode=qr&format=png" alt="Google Messages QR Code" style="border: 1px solid #ccc; padding: 10px; border-radius: 8px;" />
   </div>
   <p><small>This page auto-refreshes every 5 seconds until pairing completes.</small></p>
+  <hr style="max-width: 400px; margin: 30px auto;" />
+  <p><a href="/pair" style="color: #2563eb; text-decoration: underline;">Switch to Google Account emoji challenge (recommended)</a></p>
 </body>
 </html>`)
 }
