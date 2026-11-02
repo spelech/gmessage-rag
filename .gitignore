@@ -1,0 +1,30 @@
+# Binaries and build artifacts
+/bin/
+/out/
+/gmessages-rag
+
+# Local data volumes & session state (CRITICAL SEC: never commit session tokens or decrypted media)
+/data/auth/
+/data/media/
+/data/dossiers/
+/data/
+pgdata/
+
+# Environment files with credentials
+.env
+.env.local
+*.local.env
+
+# Go test cache & coverage
+*.out
+*.test
+coverage.html
+.coverage
+
+# OS and Editor metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~

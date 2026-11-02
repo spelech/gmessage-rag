@@ -1,0 +1,3 @@
+[submodule ".toolbelt"]
+	path = .toolbelt
+	url = https://github.com/spelech/AgenticEngineeringToolbelt.git

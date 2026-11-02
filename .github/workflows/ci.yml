@@ -1,0 +1,89 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+      - 'release/**'
+      - 'hotfix/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  lint-and-format:
+    name: "Stage 1: Fast Lint & Static Analysis"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+
+      - name: Go Format & Vet
+        run: |
+          test -z "$(gofmt -l .)" || (echo "Unformatted Go code detected:" && gofmt -d . && exit 1)
+          go vet ./...
+
+  unit-and-boundary-tests:
+    name: "Stage 2: Deterministic Unit & Boundary Tests"
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Run Tests with Race Detector & Coverage
+        run: |
+          go test -v -race -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+
+  container-build:
+    name: "Stage 3: Container Immutability & Build Verification"
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify Docker Compose Config
+        run: |
+          docker compose config
+
+      - name: Build Docker Container
+        run: |
+          docker build -t gmessages-rag:ci .
+
+  living-docs-check:
+    name: "Stage 4: Living Docs & Requirements Traceability"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify Architecture and Requirements Integrity
+        run: |
+          test -f docs/ARCHITECTURE.md || (echo "Missing docs/ARCHITECTURE.md" && exit 1)
+          test -f docs/REQUIREMENTS.md || (echo "Missing docs/REQUIREMENTS.md" && exit 1)
+          test -f docs/CHANGELOG.md || (echo "Missing docs/CHANGELOG.md" && exit 1)
