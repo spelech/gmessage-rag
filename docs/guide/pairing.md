@@ -55,3 +55,25 @@ sequenceDiagram
 2. The daemon requests a pairing challenge from Google.
 3. The expected emoji (e.g. `🚀` or `🐶`) is displayed on the web interface or pushed via Apprise/ntfy.
 4. Open Google Messages on the same phone and tap the matching emoji. **No camera scan required.**
+
+## Gated Live Smoke Test (`HARN-04`)
+
+Before relying on a real account in production, run the opt-in end-to-end smoke test. It proves the real provider handoff: pairing, session persistence, connection, and one inbound message.
+
+It never runs in CI. It requires the `live` build tag plus explicit environment variables:
+
+```bash
+GM_ALLOW_NETWORK=1 \
+LIVE_GM_TEST=1 \
+SESSION_PATH=/tmp/live-smoke-session.json \
+DATABASE_URL='postgres://user:pass@host:5432/gmessages' \
+go test -tags live -race -v -timeout 5m -run TestLiveSmoke_EndToEnd ./internal/gm/
+```
+
+During the run:
+1. The test prints the Gaia emoji challenge to the test log.
+2. Approve the matching emoji in Google Messages on your phone.
+3. Send one test message from the paired phone within the 2-minute window.
+4. The test asserts the session file is `0600`, `Connect` succeeds, and the inbound message reaches the ingestion callback.
+
+Use a dedicated `SESSION_PATH` so the smoke test never clobbers the daemon's session. Do not commit the session file or any message content.
