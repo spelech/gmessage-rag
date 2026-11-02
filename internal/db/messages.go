@@ -252,3 +252,30 @@ func scanMessages(rows pgx.Rows) ([]Message, error) {
 
 	return msgs, nil
 }
+
+// SearchMessagesFTS executes a full-text search against messages.body for a given conversation.
+func (d *DB) SearchMessagesFTS(ctx context.Context, conversationID string, queryText string, limit int) ([]Message, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	const searchFTSQuery = `
+SELECT
+    id, conversation_id, session_id, sender_id, sender_name,
+    is_from_me, sent_at, body, reply_to_message_id, reactions,
+    raw_status, is_backfill, created_at
+FROM messages
+WHERE ($1 = '' OR conversation_id = $1)
+  AND to_tsvector('english', body) @@ websearch_to_tsquery('english', $2)
+ORDER BY ts_rank_cd(to_tsvector('english', body), websearch_to_tsquery('english', $2)) DESC, sent_at DESC
+LIMIT $3;
+`
+
+	rows, err := d.Pool.Query(ctx, searchFTSQuery, conversationID, queryText, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search messages fts: %w", err)
+	}
+	defer rows.Close()
+
+	return scanMessages(rows)
+}

@@ -177,3 +177,13 @@ ORDER BY r.rrf_score DESC LIMIT $6;
 
 	return results, nil
 }
+
+// SearchSessionsHybrid_RRF executes hybrid reciprocal rank fusion search with default nil vector and dates.
+func (d *DB) SearchSessionsHybrid_RRF(
+	ctx context.Context,
+	conversationID string,
+	queryText string,
+	limit int,
+) ([]SessionSearchResult, error) {
+	return d.SearchSessionsHybrid(ctx, conversationID, queryText, nil, nil, nil, limit)
+}
