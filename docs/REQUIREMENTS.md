@@ -60,8 +60,8 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`GUARD-02`** | `GUARD` | [x] Complete | **Send-Message Restriction** | Commit `57dad5e` | Deliberately omits outbound `send_message` MCP tool unless `ENABLE_MCP_SEND_MESSAGE=true` is explicitly configured. | `internal/mcpserver/tools_test.go::TestSendMessageTool_RegistrationGuard` |
 | **`PIPE-01`** | `PIPE` | [ ] Not Started | **Vision OCR Sidecar** | — | Extracts verbatim OCR text and a 1-2 sentence visual description for image attachments via an OpenAI-compatible vision model. **Not implemented:** no vision client exists; `VISION_MODEL`/`LLM_BASE_URL` are unused. | None |
 | **`PIPE-02`** | `PIPE` | [~] Partial | **Per-Conversation Idle Debouncer** | PR #6, #12 | Maintains thread-safe timers per tracked conversation; triggers a pipeline run after 30 minutes of silence. **Partial:** the debouncer and its timers are implemented and tested, but the daemon's `OnFlush` callback only logs (no pipeline run). | `internal/pipeline/debouncer_test.go::TestDebouncer_ResetOnNewMessage` |
-| **`PIPE-03`** | `PIPE` | [ ] Not Started | **LLM State Reconciliation Engine** | — | Reconciles new sessions against the current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown. **Not implemented:** no LLM client or dossier generator exists; `DOSSIER_MODEL` is unused. | None |
-| **`PIPE-04`** | `PIPE` | [~] Partial | **Google Contacts Enrichment** | PR #47, commit `836834b` | Pulls `ListContacts` / `ListTopContacts` and enriches dossiers with contact names, avatars, and labels. **Partial:** fetching/parsing exists and is tested; no dossier enrichment consumes it. | `internal/gm/contacts_test.go` (fetch/parse only) |
+| **`PIPE-03`** | `PIPE` | [x] Complete | **LLM State Reconciliation Engine** | Issue #78 | Reconciles new sessions against the current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown. `internal/pipeline/dossier.go` calls `DOSSIER_MODEL` through an injectable OpenAI-compatible client, persists via `db.UpsertContactDossier`, and spools `<contact>.md` under `DOSSIER_DIR`. | `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` |
+| **`PIPE-04`** | `PIPE` | [x] Complete | **Google Contacts Enrichment** | Issue #78 (PR #47, commit `836834b`) | Pulls `ListContacts` / `ListTopContacts` and enriches dossiers with contact names, avatars, nicknames, and number labels. `internal/pipeline/contacts.go` merges the roster into the reconciled structured state and Markdown. | `internal/pipeline/contacts_test.go::TestContactsSync_DossierEnrichment` |
 | **`PIPE-05`** | `PIPE` | [~] Partial | **Action-Aware Smart Debouncing** | PR #40, commit `09c2323` | Resets or pauses the idle window on typing events and outbound drafts. **Partial:** the debouncer exposes `RecordTypingType`, but the daemon/gm client never forwards typing events to it. | `internal/pipeline/debouncer_test.go::TestDebouncer_TypingIndicatorReset` |
 | **`PIPE-06`** | `PIPE` | [~] Partial | **Standardized Batch ETL Ingestion** | PR #48, commit `badf3e9` | Chunked cursor fetching and normalized transformation for backfills. **Partial:** message fetch/upsert ETL is implemented and tested; no embedding/vector staging occurs. | `internal/pipeline/etl_test.go::TestETLPipeline_BatchProcessing` |
 | **`OBS-01`** | `OBS` | [x] Complete | **Prometheus Metrics & Health Probes** | PR #41, commit `151d981` | Exposes standard Prometheus metrics (`/metrics`) and health check probes (`/healthz`) with database pool reachability and WebSocket listener status. | `internal/obs/metrics_test.go::TestMetrics_HTTPEndpointScrape` |
@@ -200,15 +200,15 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 
 ### `PIPE-03`: LLM State Reconciliation Engine
 - **Category**: `PIPE` (`PositiveFeature`)
-- **Status**: `[x] Complete` (PR #34, commit `1141504`)
-- **Description**: Reconciles new sessions against current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown to disk.
-- **Verification**: Mock LLM reconciliation tests validating chronological overrides and Markdown serialization.
+- **Status**: `[x] Complete` (Issue #78)
+- **Description**: Reconciles new sessions against current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown to disk. The reconciler (`internal/pipeline/dossier.go`) is injectable, calls the `DOSSIER_MODEL` chat endpoint through an OpenAI-compatible client, persists to `contact_dossiers` (snapshotting prior state to `contact_dossier_history`), and spools Markdown under `DOSSIER_DIR`.
+- **Verification**: `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` runs against real Postgres with a contract-stub LLM boundary, asserting the persisted dossier, audit history, and exported Markdown.
 
 ### `PIPE-04`: Google Contacts Enrichment
 - **Category**: `PIPE` (`PositiveFeature`)
-- **Status**: `[x] Complete` (PR #47, commit `836834b`)
-- **Description**: Periodically calls `libgm.Client.ListContacts` and `ListTopContacts` to extract profile full names, contact avatars, relationship nicknames, and phone label types (mobile/work/home), enriching `contact_dossiers` with ground-truth contact information beyond RCS group subject strings.
-- **Verification**: Integration test asserting contact metadata sync and dossier enrichment.
+- **Status**: `[x] Complete` (Issue #78; fetch/parse PR #47, commit `836834b`)
+- **Description**: Periodically calls `libgm.Client.ListContacts` and `ListTopContacts` to extract profile full names, contact avatars, relationship nicknames, and phone-number labels, enriching `contact_dossiers` with ground-truth contact information beyond RCS group subject strings. `internal/pipeline/contacts.go` merges the roster into the reconciled structured state and Markdown.
+- **Verification**: `internal/pipeline/contacts_test.go::TestContactsSync_DossierEnrichment` asserts contact metadata sync and dossier enrichment against real Postgres.
 
 ### `PIPE-05`: Action-Aware Smart Debouncing
 - **Category**: `PIPE` (`PositiveFeature`)
@@ -454,3 +454,13 @@ row must now point at a test that exists; CI enforces this via `scripts/check_tr
 | `UI-01`,`DAEMON-01`,`TRANS-01`,`TRANS-02` | Complete | Complete | Status correct; proof paths corrected to existing tests |
 | `DB-07` | In Progress | Complete | CI Postgres service merged (PR #73) |
 | `HARN-02` | In Progress | Complete | FetchMessages/ListContacts/media emulated; real `gm.Client` proofs added (#82) |
+
+### 2026-11-02 Resolutions (Issue #78)
+
+The table above is a point-in-time audit snapshot. Subsequent work re-promotes rows whose
+implementation and proof now exist.
+
+| Requirement | Audit State | Current State | Resolution |
+| :--- | :--- | :--- | :--- |
+| `PIPE-03` | Not Started | `[x] Complete` | Living Dossier reconciler landed: `internal/pipeline/dossier.go`, `internal/pipeline/dossier_state.go`; proof `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` |
+| `PIPE-04` | Partial | `[x] Complete` | Contact enrichment consumer landed: `internal/pipeline/contacts.go`; proof `internal/pipeline/contacts_test.go::TestContactsSync_DossierEnrichment` |
