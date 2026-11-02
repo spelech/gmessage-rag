@@ -15,12 +15,8 @@ func (d *DB) UpsertMessage(ctx context.Context, msg *Message) error {
 		return fmt.Errorf("message cannot be nil")
 	}
 
-	n, err := d.UpsertMessagesBatch(ctx, []*Message{msg})
-	if err != nil {
-		return err
-	}
-	_ = n
-	return nil
+	_, err := d.UpsertMessagesBatch(ctx, []*Message{msg})
+	return err
 }
 
 // UpsertMessagesBatch inserts multiple messages in a single transaction with ON CONFLICT (id) DO NOTHING.

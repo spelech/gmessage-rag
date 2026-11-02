@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+// NewGaiaClient creates a Client configured for Gaia pairing (alias for NewClient).
+func NewGaiaClient(opts ClientOptions) (*Client, error) {
+	return NewClient(opts)
+}
+
 // CurrentEmoji returns the current Gaia pairing emoji challenge thread-safely.
 func (c *Client) CurrentEmoji() string {
 	c.mu.RLock()

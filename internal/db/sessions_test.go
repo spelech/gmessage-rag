@@ -3,7 +3,6 @@ package db_test
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"testing"
 	"time"
@@ -348,5 +347,4 @@ func TestSearchSessionsHybrid_RRF(t *testing.T) {
 	if resultsLimit1[0].ID != sC.ID {
 		t.Errorf("expected limit=1 result to be Session C, got ID %d", resultsLimit1[0].ID)
 	}
-	_ = math.Abs
 }

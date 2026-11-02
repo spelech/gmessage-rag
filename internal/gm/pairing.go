@@ -111,6 +111,7 @@ type PairingHandler struct {
 	isPaired    bool
 	qrImage     []byte
 	lastUpdated time.Time
+	listenOnce  sync.Once
 }
 
 // NewPairingHandler creates a PairingHandler for web QR pairing.
@@ -144,15 +145,17 @@ func (h *PairingHandler) Start(ctx context.Context) error {
 	h.qrImage = png
 	h.lastUpdated = time.Now()
 
-	go func() {
-		select {
-		case <-h.client.pairDone:
-			h.mu.Lock()
-			h.isPaired = true
-			h.mu.Unlock()
-		case <-ctx.Done():
-		}
-	}()
+	h.listenOnce.Do(func() {
+		go func() {
+			select {
+			case <-h.client.pairDone:
+				h.mu.Lock()
+				h.isPaired = true
+				h.mu.Unlock()
+			case <-ctx.Done():
+			}
+		}()
+	})
 
 	return nil
 }

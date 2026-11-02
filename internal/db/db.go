@@ -72,7 +72,7 @@ func (db *DB) Close() {
 
 // Ping verifies connectivity to the database.
 func (db *DB) Ping(ctx context.Context) error {
-	if db.Pool == nil {
+	if db == nil || db.Pool == nil {
 		return fmt.Errorf("database pool is not initialized")
 	}
 	return db.Pool.Ping(ctx)

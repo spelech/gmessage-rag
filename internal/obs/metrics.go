@@ -41,6 +41,11 @@ var (
 	defaultMetricsOnce     sync.Once
 )
 
+// NewMetricsRegistry initializes and registers standardized metrics with a new Prometheus registry (alias for NewMetrics).
+func NewMetricsRegistry() *Metrics {
+	return NewMetrics()
+}
+
 // NewMetrics initializes and registers standardized metrics with a new Prometheus registry.
 func NewMetrics() *Metrics {
 	reg := prometheus.NewRegistry()

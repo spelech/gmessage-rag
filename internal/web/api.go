@@ -30,6 +30,11 @@ type APIHandler struct {
 	gmClient *gm.Client
 }
 
+// NewAPI is an alias for NewAPIHandler.
+func NewAPI(database *db.DB, gmClient *gm.Client) *APIHandler {
+	return NewAPIHandler(database, gmClient)
+}
+
 // NewAPIHandler constructs a new APIHandler.
 func NewAPIHandler(database *db.DB, gmClient *gm.Client) *APIHandler {
 	return &APIHandler{

@@ -23,6 +23,11 @@ type TestBenchHandler struct {
 	db        SearchDatabase
 }
 
+// NewTestBench is an alias for NewTestBenchHandler.
+func NewTestBench(mcpServer *mcpserver.Server, database SearchDatabase) *TestBenchHandler {
+	return NewTestBenchHandler(mcpServer, database)
+}
+
 // NewTestBenchHandler constructs a new TestBenchHandler.
 func NewTestBenchHandler(mcpServer *mcpserver.Server, database SearchDatabase) *TestBenchHandler {
 	return &TestBenchHandler{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/spelech/gmessage-rag/internal/db"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
@@ -187,7 +188,9 @@ func BackfillConversation(ctx context.Context, fetcher MessageFetcher, database 
 		} else {
 			conv.BackfillCursor = &cursorStr
 		}
-		_ = database.UpsertConversation(ctx, conv)
+		if err := database.UpsertConversation(ctx, conv); err != nil {
+			log.Warn().Err(err).Str("conv_id", conversationID).Msg("Failed to persist backfill cursor")
+		}
 
 		// Politeness delay
 		if opts.Delay > 0 {

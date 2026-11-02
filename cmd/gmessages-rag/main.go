@@ -11,27 +11,25 @@ var rootCmd = &cobra.Command{
 	Use:   "gmessages-rag",
 	Short: "Real-Time Google Messages Ingestion, Vision OCR, Living Dossier & Hybrid RAG MCP Server",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("gmessages-rag daemon. Use 'serve' or 'pair'.")
+		_ = cmd.Help()
 	},
 }
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the gmessages-rag ingestion daemon, web server, and MCP service",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Starting gmessages-rag service...")
-	},
+	RunE:  runServe,
 }
 
 var pairCmd = &cobra.Command{
 	Use:   "pair",
-	Short: "Initiate Google Messages QR pairing via terminal",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Starting pairing session...")
-	},
+	Short: "Initiate Google Messages QR pairing via terminal or Gaia emoji challenge",
+	RunE:  runPair,
 }
 
 func init() {
+	pairCmd.Flags().BoolVar(&gaiaFlag, "gaia", false, "Use Google Account (Gaia) emoji challenge pairing without QR camera scan (AUTH-04)")
+
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(pairCmd)
 }

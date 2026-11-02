@@ -42,6 +42,11 @@ func WithHealthTimeout(timeout time.Duration) HealthHandlerOption {
 	}
 }
 
+// NewHealthHandler constructs an http.Handler checking DB and optionally client status.
+func NewHealthHandler(db Pinger, opts ...HealthHandlerOption) http.Handler {
+	return HealthHandler(db, opts...)
+}
+
 // HealthHandler returns an http.HandlerFunc that verifies database pool reachability (db.Ping(ctx))
 // and reports active connection status according to OBS-01.
 // Returns HTTP 200 {"status": "ok", "db": "healthy"} or HTTP 503 if unreachable.

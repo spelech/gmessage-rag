@@ -13,6 +13,11 @@ import (
 //go:embed assets/*
 var dashboardAssets embed.FS
 
+// NewDashboard is an alias for NewDashboardHandler.
+func NewDashboard(database *db.DB, gmClient *gm.Client) http.Handler {
+	return NewDashboardHandler(database, gmClient)
+}
+
 // NewDashboardHandler constructs an http.Handler that routes:
 // - GET / and GET /dashboard to the embedded dashboard UI
 // - GET /api/v1/status

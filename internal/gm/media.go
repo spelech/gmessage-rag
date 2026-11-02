@@ -169,7 +169,10 @@ func SaveAttachment(reader io.Reader, baseDir, ext string) (string, string, int6
 			return "", "", 0, fmt.Errorf("rename temp media file to target %s: %w", targetPath, err)
 		}
 		// Enforce POSIX 0600 file permissions
-		_ = os.Chmod(targetPath, 0600)
+		if err := os.Chmod(targetPath, 0600); err != nil {
+			_ = os.Remove(targetPath)
+			return "", "", 0, fmt.Errorf("chmod media file %s: %w", targetPath, err)
+		}
 	}
 
 	return targetRelPath, sha256Hex, written, nil

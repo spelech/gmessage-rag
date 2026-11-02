@@ -83,6 +83,18 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	return c, nil
 }
 
+// FetchMessages wraps libgm.Client.FetchMessages converting byte cursor to *gmproto.Cursor.
+// This implements MessageFetcher for ETL and backfill.
+func (c *Client) FetchMessages(ctx context.Context, conversationID string, count int64, cursor []byte) (*gmproto.ListMessagesResponse, error) {
+	var protoCursor *gmproto.Cursor
+	if len(cursor) > 0 {
+		protoCursor = &gmproto.Cursor{
+			LastItemID: string(cursor),
+		}
+	}
+	return c.libgmClient.FetchMessages(ctx, conversationID, count, protoCursor)
+}
+
 // LibGM returns the underlying libgm.Client.
 func (c *Client) LibGM() *libgm.Client {
 	return c.libgmClient
