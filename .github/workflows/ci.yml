@@ -60,6 +60,22 @@ jobs:
     name: "Stage 2: Deterministic Unit & Boundary Tests"
     runs-on: ubuntu-latest
     needs: lint-and-format
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: rcsrag
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: gmessages_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rcsrag -d gmessages_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://rcsrag:changeme@localhost:5432/gmessages_test?sslmode=disable
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -74,10 +90,20 @@ jobs:
 
       - name: Run Tests with Race Detector & Coverage
         run: |
-          # HARN-03: the `gm` package installs a deny-all network transport by default,
-          # so this suite is hermetic and requires zero outbound network access.
+          # HARN-03: the `gm` package installs a deny-all HTTP transport by default,
+          # so the suite never reaches the internet. DATABASE_URL targets the
+          # Postgres+pgvector service above, enabling the DB integration suite (DB-07).
           go test -v -race -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out
+
+      - name: Enforce Coverage Floors
+        run: |
+          set -euo pipefail
+          total=$(go tool cover -func=coverage.out | awk '/^total:/{gsub("%","",$3); print $3}')
+          dbcov=$(go test -cover ./internal/db/... | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+' | head -1)
+          echo "total=${total}% db=${dbcov}%"
+          awk -v c="${total}" 'BEGIN{exit !(c>=75)}' || { echo "Total coverage ${total}% below 75% floor"; exit 1; }
+          awk -v c="${dbcov}" 'BEGIN{exit !(c>=75)}' || { echo "internal/db coverage ${dbcov}% below 75% floor"; exit 1; }
 
       - name: Compile-Check Live-Tagged Tests (No Execution)
         run: go vet -tags live ./...
