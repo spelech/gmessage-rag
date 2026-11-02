@@ -34,6 +34,15 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if len(cfg.TrackedContacts) != 0 {
 		t.Errorf("expected empty TrackedContacts by default, got %v", cfg.TrackedContacts)
 	}
+	if cfg.ExternalWebURL != "http://localhost:8090" {
+		t.Errorf("expected default ExternalWebURL 'http://localhost:8090', got %s", cfg.ExternalWebURL)
+	}
+	if cfg.NotifyOnPhoneDisconnect {
+		t.Errorf("expected NotifyOnPhoneDisconnect false by default")
+	}
+	if cfg.PhoneDisconnectGraceMinutes != 15 {
+		t.Errorf("expected default PhoneDisconnectGraceMinutes 15, got %d", cfg.PhoneDisconnectGraceMinutes)
+	}
 }
 
 func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
@@ -41,6 +50,11 @@ func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
 	os.Setenv("TRACKED_CONTACTS", "Sarah, +13125551212, Mom ")
 	os.Setenv("ENABLE_MCP_SEND_MESSAGE", "true")
 	os.Setenv("TZ", "America/New_York")
+	os.Setenv("APPRISE_URL", "http://apprise:8000/notify")
+	os.Setenv("NTFY_URL", "https://ntfy.sh/my-topic")
+	os.Setenv("EXTERNAL_WEB_URL", "https://gmessages.home.arpa")
+	os.Setenv("NOTIFY_ON_PHONE_DISCONNECT", "true")
+	os.Setenv("PHONE_DISCONNECT_GRACE_MINUTES", "20")
 	defer os.Clearenv()
 
 	cfg, err := config.LoadConfig()
@@ -65,5 +79,20 @@ func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
 	}
 	if cfg.IsTracked("Unknown") {
 		t.Errorf("expected 'Unknown' to not be tracked")
+	}
+	if cfg.AppriseURL != "http://apprise:8000/notify" {
+		t.Errorf("expected AppriseURL 'http://apprise:8000/notify', got %s", cfg.AppriseURL)
+	}
+	if cfg.NtfyURL != "https://ntfy.sh/my-topic" {
+		t.Errorf("expected NtfyURL 'https://ntfy.sh/my-topic', got %s", cfg.NtfyURL)
+	}
+	if cfg.ExternalWebURL != "https://gmessages.home.arpa" {
+		t.Errorf("expected ExternalWebURL 'https://gmessages.home.arpa', got %s", cfg.ExternalWebURL)
+	}
+	if !cfg.NotifyOnPhoneDisconnect {
+		t.Errorf("expected NotifyOnPhoneDisconnect true")
+	}
+	if cfg.PhoneDisconnectGraceMinutes != 20 {
+		t.Errorf("expected PhoneDisconnectGraceMinutes 20, got %d", cfg.PhoneDisconnectGraceMinutes)
 	}
 }

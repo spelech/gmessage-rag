@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Specified advanced capabilities across requirements and architecture: Apprise/ntfy mobile re-auth alerting (`AUTH-03`), inferred read receipt heuristics for SMS/iPhone contacts (`DB-06`), opt-in full-resolution media retrieval (`SEC-02`), Google Contacts profile enrichment (`PIPE-04`), action-aware smart debouncing on typing events (`PIPE-05`), standardized 3-stage batch ETL ingestion (`PIPE-06`), and debounced phone connectivity monitoring (`TRANS-04`).
 - Implemented `internal/gm/media.go`, `backfill.go`, and `internal/db/media.go` with streaming SHA-256 content-addressed media storage, duplicate file write avoidance, rate-limited cursor pagination backfill, and anti-test-theatre unit tests (resolving Issue #8).
 - Documented testing and operational standards: Controls-grade protobuf disturbance simulation fixture (`HARN-01`), CI `govulncheck` call-graph vulnerability scanning and ThreadSanitizer race detection (`SEC-03`), Prometheus `/metrics` and `/healthz` observability endpoints (`OBS-01`), and bi-directional Home Assistant MQTT bridge (`INT-01`).
+- Implemented `internal/notify/client.go` and `internal/notify/watchdog.go` with unit test suite covering Apprise and ntfy push alerting for session re-auth, single-device Gaia emoji challenge, and debounced phone connectivity monitoring (`AUTH-03`, `TRANS-04`).
 
 
 
