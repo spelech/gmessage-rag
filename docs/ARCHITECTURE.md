@@ -496,6 +496,33 @@ sequenceDiagram
 - For standard QR pairing, Google Messages on Android allows scanning from a gallery screenshot on some versions, or opening `/pair` in split-screen/floating-window mode.
 - However, the **Gaia Emoji Match (`AUTH-04`)** is the first-class solution that makes single-device authentication seamless.
 
+---
+
+## Testing & Simulation Architecture (`HARN-01`, `SEC-03`)
+
+### Controls-Grade Protobuf Disturbance Simulation Fixture (`HARN-01`)
+To ensure reliable testing without relying on physical Android devices or Google cloud connectivity, `internal/gm/testing/mock_server.go` implements an in-memory WebSocket simulation fixture:
+- **Disturbance Injection**: Emits synthetic Google Messages protobuf frames mimicking network disconnects (`PhoneNotResponding`), bursty RCS media uploads, typing events, and out-of-order cursor history.
+- **Hermetic CI Execution**: The simulation harness runs on every pull request and commit, validating end-to-end event loops, transaction boundaries, and backfill pagination deterministically.
+
+### Concurrency Race Detection & Vulnerability Analysis (`SEC-03`)
+- **Data-Race Free Guarantee**: Executed with `go test -race -timeout 5m ./...` across all packages in CI and locally via `make test-race`.
+- **Compiler Call-Graph Auditing**: Integrated `govulncheck` in the CI pipeline to audit binary call graphs against the official Go Vulnerability Database, eliminating false-positive dependency alerts.
+
+---
+
+## Observability & Home Assistant Integration (`OBS-01`, `INT-01`)
+
+### Standardized Observability & Probes (`OBS-01`)
+- **Metrics Endpoint (`/metrics`)**: Exposes standard Prometheus counters (`gmessages_messages_ingested_total`, `gmessages_media_bytes_decrypted_total`) and gauges (`gmessages_active_websocket_connections`).
+- **Health Probes (`/healthz`)**: Verifies database connection pool liveness and WebSocket heartbeat health for container orchestrators.
+
+### Bi-Directional Home Assistant MQTT Bridge (`INT-01`)
+- Supplements outbound webhooks by connecting to the local Home Assistant MQTT broker (`core-mosquitto`).
+- Publishes Home Assistant MQTT Discovery topics (`homeassistant/sensor/gmessages/...`) for zero-configuration integration.
+- Subscribes to `gmessages/commands/send` to enable Home Assistant automations to send outgoing SMS/RCS messages seamlessly.
+
+
 
 
 

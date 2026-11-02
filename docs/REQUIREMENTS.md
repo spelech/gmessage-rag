@@ -126,6 +126,32 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
   4. The user taps the notification on their phone, opens Google Messages, and simply taps the matching emoji on their screen to grant instant pairing approval without using a camera.
 - **Verification**: Unit tests in `internal/gm/gaia_pairing_test.go` asserting emoji callback invocation, Ukey2 handshake processing, and `PairSuccessful` emission upon challenge confirmation.
 
+### `HARN-01`: Controls-Grade Protobuf Disturbance Simulation Fixture
+- **Category**: `HARN` (`PositiveFeature`)
+- **Description**: Provides an in-memory Google Messages WebSocket simulation harness capable of injecting raw protobuf disturbance frames (pairing challenges, sudden socket disconnections, bursts of concurrent RCS media attachments, rapid-fire typing indicators, corrupt chunks) to verify daemon resilience without physical hardware.
+- **Verification**: Simulation suite running in CI with zero hardware dependencies, verifying deterministic recovery.
+
+### `SEC-03`: CI Vulnerability Scanning & Concurrency Race Detection
+- **Category**: `SEC` (`NonFunctional`)
+- **Description**: Enforces automated security auditing and concurrency verification in CI:
+  1. `govulncheck`: Static call-graph vulnerability scanning against the Go Vulnerability Database.
+  2. `go test -race`: Concurrency race detection across all internal packages to guarantee data-race-free timer, channel, and connection operations.
+- **Verification**: Mandatory CI gate steps failing on any detected call-graph CVE or data race.
+
+### `OBS-01`: Standardized Metrics & Observability Endpoints
+- **Category**: `OBS` (`PositiveFeature`)
+- **Description**: Exposes runtime Prometheus metrics (`/metrics`) and health probes (`/healthz`):
+  - Ingestion counters (`gmessages_messages_ingested_total`, `gmessages_media_bytes_decrypted_total`).
+  - Pipeline gauges (`gmessages_active_websocket_connections`, `gmessages_session_chunks_created_total`).
+  - Lightweight `/healthz` endpoint checking database pool reachability and WebSocket listener status for container orchestrators.
+- **Verification**: HTTP handler tests verifying metric emission and health status checks.
+
+### `INT-01`: Home Assistant MQTT Bi-Directional Bridge
+- **Category**: `INT` (`PositiveFeature`)
+- **Description**: Supplements outbound HTTP webhooks with an optional MQTT client bridge supporting Home Assistant MQTT Discovery. Publishes sensor states (connection status, unread message count) and subscribes to a command topic allowing Home Assistant automations to send outgoing SMS/RCS messages.
+- **Verification**: In-memory MQTT client tests verifying discovery payload publication and inbound message dispatch.
+
+
 
 
 
