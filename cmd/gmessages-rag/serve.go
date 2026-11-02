@@ -23,6 +23,7 @@ import (
 	"github.com/spelech/gmessage-rag/internal/obs"
 	"github.com/spelech/gmessage-rag/internal/pipeline"
 	"github.com/spelech/gmessage-rag/internal/web"
+	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
 // DaemonServer bundles runtime components for clean lifecycle management.
@@ -79,7 +80,7 @@ func BuildServeMuxWithTuner(database *db.DB, gmClient *gm.Client, mcpSrv *mcpser
 
 // StartETLForTrackedContacts triggers background ETL backfill ingestion for tracked contacts and
 // sessionizes the newly ingested messages.
-func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, database *db.DB, gmClient *gm.Client, sessionizer *pipeline.Sessionizer, trackedContacts []string, batchSize int) {
+func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, database *db.DB, gmClient *gm.Client, sessionizer *pipeline.Sessionizer, media *pipeline.MediaIngestor, trackedContacts []string, batchSize int) {
 	if len(trackedContacts) == 0 || database == nil || gmClient == nil {
 		return
 	}
@@ -89,6 +90,7 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 		etl := &pipeline.ETLPipeline{
 			Fetcher:  gmClient,
 			Database: database,
+			Media:    media,
 		}
 
 		limit := int64(batchSize)
@@ -221,6 +223,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// gmClient is assigned after the debouncer is created; the contact source closes over it so
 	// late-bound contacts fetching does not reorder daemon construction.
 	var gmClient *gm.Client
+
+	// Persist decrypted RCS media during ETL ingestion so the Vision service can
+	// OCR stored image attachments on the next debounced flush (SEC-01). The
+	// downloader is attached once gmClient exists below.
+	mediaIngestor := &pipeline.MediaIngestor{
+		Database: database,
+		MediaDir: cfg.MediaDir,
+		Logger:   logger.With().Str("component", "media").Logger(),
+	}
 	dossierReconciler := pipeline.NewDossierReconciler(pipeline.DossierReconcilerConfig{
 		Store:     database,
 		Model:     dossierModel,
@@ -278,10 +289,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		OnConversationActive: func(conversationID string) {
 			debouncer.RecordEvent(conversationID, pipeline.EventInboundMessage)
 		},
+		OnTypingActivity: func(conversationID string, typingType gmproto.TypingTypes) {
+			debouncer.RecordTypingType(conversationID, typingType)
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize Google Messages client: %w", err)
 	}
+	mediaIngestor.Downloader = gmClient
 
 	// Connect Google Messages client if credentials exist and are paired
 	if gmClient.LibGM().IsLoggedIn() {
@@ -311,7 +326,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	rootMux := BuildServeMuxWithTuner(database, gmClient, mcpServer, metrics, tuner)
 
 	// 8. Start background batch ETL pipeline for any tracked contacts
-	StartETLForTrackedContacts(ctx, logger, database, gmClient, sessionizer, cfg.TrackedContacts, cfg.MaxBackfillMessages)
+	StartETLForTrackedContacts(ctx, logger, database, gmClient, sessionizer, mediaIngestor, cfg.TrackedContacts, cfg.MaxBackfillMessages)
 
 	// 9. Configure and start HTTP server
 	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)

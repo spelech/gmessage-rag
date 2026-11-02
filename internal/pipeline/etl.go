@@ -15,6 +15,9 @@ import (
 type ETLPipeline struct {
 	Fetcher  gm.MessageFetcher
 	Database *db.DB
+	// Media, when set, persists decrypted attachments for fetched messages so the
+	// Vision service can OCR them (SEC-01).
+	Media *MediaIngestor
 }
 
 // Extract fetches a page of messages using Fetcher.FetchMessages.
@@ -176,6 +179,14 @@ func (p *ETLPipeline) RunBatch(ctx context.Context, conversationID string, count
 
 	if err := p.Load(ctx, conversationID, transformedMsgs, nextCursor); err != nil {
 		return nil, 0, fmt.Errorf("load stage: %w", err)
+	}
+
+	// Persist decrypted media attachments for the freshly loaded messages so the
+	// Vision service can OCR them on the next debounced flush (SEC-01).
+	if p.Media != nil {
+		if _, err := p.Media.IngestMessages(ctx, rawMsgs); err != nil {
+			return nextCursor, len(transformedMsgs), fmt.Errorf("media ingestion stage: %w", err)
+		}
 	}
 
 	return nextCursor, len(transformedMsgs), nil
