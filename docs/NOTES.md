@@ -1,6 +1,6 @@
 # Go Architectural Patterns, Capabilities, and Engineering Notes
 
-This document captures core architectural patterns, idiomatic translations from C#/.NET and TypeScript/React, high-yield use cases, and hard boundaries/limitations when engineering with Go.
+This document captures core architectural patterns, idiomatic translations from C#/.NET and TypeScript/React, high-yield use cases, hard boundaries/limitations, the polyglot language decision matrix, and the blueprint for the upcoming `golang-service-daemon` toolbelt archetype.
 
 ---
 
@@ -176,3 +176,91 @@ Understanding Go's architectural non-goals prevents misapplying it to domains wh
 | **Native Cross-Platform GUI Desktop Apps** | Go has no official GUI framework. UI libraries (Fyne, Gio) or Webview frameworks (Wails) rely on CGO bindings, breaking clean cross-compilation and native platform UI polish. | **TypeScript (Tauri/Electron)**, **C# (WPF/MAUI/Avalonia)**, **Swift/Kotlin** |
 | **Scientific Computing & ML Model Training** | The ML/DL ecosystem (PyTorch, JAX, CUDA kernels, HuggingFace) is deeply rooted in Python and C++. Go lacks operator overloading, tensor primitives, and interactive REPL/notebook tooling. | **Python**, **C++ / CUDA** |
 | **Advanced Generic / Type-Level Metaprogramming** | While Go has basic type parameters (generics since 1.18), it lacks higher-kinded types, template metaprogramming (`constexpr`), or full algebraic data types (enums with pattern matching). | **Rust**, **Haskell**, **Scala** |
+
+---
+
+## 7. Polyglot Language Decision Framework
+
+To prevent arbitrary language selection, developers and AI agents must evaluate project requirements against the following deterministic matrix:
+
+### Polyglot Evaluation Matrix
+
+| Metric / Dimension | Go (1.24+) | C# (.NET 10) | Python (3.12+) | TypeScript / React | Modern C++ (C++20/23) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Primary Sweet Spot** | Network daemons, streaming ETL, CLIs, agent MCP services | Enterprise systems, fullstack control, rich domain logic | AI/ML pipelines, rapid prototypes, data analysis | Interactive web UIs, visualization, design systems | Hard real-time, low-latency DSP, graphics/simulation |
+| **Concurrency Model** | Goroutines + Channels ($M:N$, work-stealing) | `async`/`await` Task Parallel Library, ThreadPool | `asyncio` (Single-threaded event loop), Multiprocessing | Browser/Node Event Loop (`async`/`await`, Web Workers) | OS Threads, `std::jthread`, Lock-free atomics, Coroutines |
+| **Memory Footprint** | Extremely low (10–30 MB) | Medium (50–150 MB) | High (80–250 MB) | Medium–High (Node: 60–200 MB; Browser: DOM-dependent) | Minimal / Deterministic (Stack & custom arenas) |
+| **Binary Deployment** | Single static executable (`CGO_ENABLED=0`) | Single-file executable (Native AOT) or framework-dependent | Virtualenv / Wheel / Docker image | Node bundles, Static assets (HTML/JS/CSS) | Native binary linked dynamically or statically |
+| **Cold Start Time** | < 10 ms | 15–50 ms (Native AOT) | 100–500 ms (interpreter imports) | 50–150 ms (Node V8) | < 5 ms |
+| **Sub-millisecond Latency** | Soft real-time (GC pauses < 1ms) | Soft real-time (Generational GC) | Not suitable (GIL + GC pauses) | Not suitable (GC + Single-threaded loop) | **Hard deterministic real-time (Zero GC)** |
+| **Dynamic Capabilities** | Compile-time static | Reflection, Roslyn runtime emit | Dynamic `eval`, monkey-patching, dynamic typing | Dynamic types, runtime evaluation | Compile-time templates, `constexpr` |
+| **Ecosystem Maturity** | Cloud infrastructure, networking, Kubernetes, Docker | Enterprise, Windows, Azure, game dev (Unity), finance | Machine learning, LLM tooling, scientific computing | Web standards, UI components, browsers, node tooling | Systems, game engines, physics, CAD, embedded devices |
+
+### Deterministic Language Decision Flowchart
+
+```
+Start
+  │
+  ├─► Is this primarily an interactive Web or Desktop UI?
+  │     └─► YES ──► React + TypeScript (Vite / Next.js)
+  │
+  ├─► Does the task require hard real-time determinism (zero GC pauses), embedded hardware, or custom SIMD/GPU physics?
+  │     └─► YES ──► Modern C++ (C++20/23 with strict RAII)
+  │
+  ├─► Is the primary focus ML model training, computer vision research, PyTorch/JAX pipelines, or rapid exploratory scripts?
+  │     └─► YES ──► Python (FastAPI + FastMCP + uv)
+  │
+  ├─► Is this an enterprise business system with complex relational entity models, deep domain-driven design, or fullstack .NET integration?
+  │     └─► YES ──► C# (.NET 10 with Dapper/EF Core + React UI)
+  │
+  └─► Is it a high-throughput network daemon, concurrent protocol gateway, real-time streaming pipeline, single-binary CLI, or agent MCP server?
+        └─► YES ──► Go (1.24+ with Goroutines, pgxpool, and Functional Options)
+```
+
+---
+
+## 8. Proposed Toolbelt Archetype: `golang-service-daemon`
+
+When adding the Go archetype to `AgenticEngineeringToolbelt`, the following specification and file layout will be codified:
+
+### Target Project Layout (`Standard Go Project Layout`)
+```
+├── cmd/
+│   └── <service-name>/
+│       └── main.go                  # Entry point: signals, configuration, wire dependencies
+├── internal/
+│   ├── config/                      # Strongly typed environment configuration (godotenv, envconfig)
+│   ├── db/                          # Database connection pool (pgxpool), migrations, idempotent CRUD
+│   │   └── migrations/              # Embedded .sql migration scripts (//go:embed)
+│   ├── <domain>/                    # Pure business logic, state machines, channel actor loops
+│   └── mcpserver/                   # Agent-native MCP server (Streamable HTTP, SSE, stdio)
+├── docs/
+│   ├── ARCHITECTURE.md              # Living architecture, dataflow diagrams, and decisions
+│   ├── REQUIREMENTS.md              # Traceable requirement IDs (e.g. AUTH-01, DB-02)
+│   └── CHANGELOG.md                 # Keep a Changelog format
+├── Makefile                         # Canonical tasks: build, test, lint, test-race, run
+├── Dockerfile                       # Multi-stage build (golang:1.24-alpine -> scratch/alpine:3.21)
+├── docker-compose.yml               # Local dependencies (Postgres 17, pgvector, etc.)
+├── .golangci.yml                    # Strict linting rules (errcheck, gosec, revive, staticcheck)
+├── go.mod
+└── go.sum
+```
+
+### Verification & Anti-Test Theatre Standards for Go
+1. **Zero Mock Framework Theatre**: Reject fragile mock generation frameworks (`mockgen`, `testify/mock`) that verify calls rather than outcomes. Use real ephemeral database containers or in-memory interface implementations.
+2. **Table-Driven Tests**: Write idiomatic Go table tests exercising `0-1-N` boundaries, boundary edge cases, and error branches.
+3. **Mandatory Concurrency Race Detection**: Every CI/CD pipeline and local test run must execute with `go test -race ./...`.
+4. **Context Timeout Enforcement**: All tests must supply bounded contexts (`context.WithTimeout(ctx, 2*time.Second)`) to prevent hung test suites.
+5. **Code Coverage Threshold**: Target $>85\%$ branch coverage across all business logic in `internal/`.
+
+---
+
+## 9. Toolbelt Integration Roadmap
+
+To integrate Go into `AgenticEngineeringToolbelt`:
+1. **File Issue on `spelech/AgenticEngineeringToolbelt`**: Detail archetype requirements, language decision matrix, and scaffolding automation.
+2. **Add `archetypes/golang-service-daemon.md`**: Complete blueprint following the archetype template.
+3. **Update `standards/ENGINEERING_STYLE_GUIDE.md`**: Embed the Polyglot Language Decision Matrix and Go coding standards.
+4. **Update `standards/TESTING_HARNESS_PATTERNS.md`**: Codify Go table-driven tests, race detection, and ephemeral container patterns.
+5. **Update `.agents/skills/scaffold-project`**: Enable automated scaffolding of Go daemons with embedded migrations, config loader, and Dockerfiles.
+6. **Update `.agents/skills/code-review-foci`**: Include Go-specific reviewer checklists (context propagation, error wrapping `%w`, race detector cleanliness, `0600` file permissions).
