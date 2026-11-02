@@ -14,6 +14,7 @@
       --success: #22c55e;
       --danger: #ef4444;
       --border: #334155;
+      --focus-ring: #60a5fa;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -29,11 +30,13 @@
       margin-bottom: 24px;
       padding-bottom: 16px;
       border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 12px;
     }
     h1 { margin: 0; font-size: 24px; font-weight: 600; }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(clamp(200px, 30vw, 300px), 1fr));
       gap: 16px;
       margin-bottom: 24px;
     }
@@ -68,13 +71,22 @@
       font-weight: 600;
       margin: 24px 0 12px 0;
     }
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      scrollbar-gutter: stable;
+      -webkit-overflow-scrolling: touch;
+      margin-bottom: 24px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card-bg);
+    }
     table {
       width: 100%;
+      min-width: 600px;
       border-collapse: collapse;
-      background: var(--card-bg);
-      border-radius: 8px;
-      overflow: hidden;
-      border: 1px solid var(--border);
+      background: transparent;
+      border: none;
     }
     th, td {
       padding: 12px 16px;
@@ -90,16 +102,63 @@
     tr:last-child td { border-bottom: none; }
     .btn {
       cursor: pointer;
-      padding: 6px 12px;
+      padding: 8px 16px;
+      min-height: 36px;
       border-radius: 4px;
       font-size: 13px;
       font-weight: 500;
       border: none;
-      transition: background 0.2s;
+      transition: background 0.2s, outline 0.15s ease-in-out;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     .btn-track { background: var(--primary); color: #fff; }
     .btn-untrack { background: var(--border); color: var(--text-muted); }
+    .btn-retry { background: var(--primary); color: #fff; margin-left: 8px; }
+    .btn-close {
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px 8px;
+      border: none;
+      cursor: pointer;
+    }
     .btn:hover { opacity: 0.9; }
+    .btn:focus-visible,
+    button:focus-visible,
+    a:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+    @media (max-width: 768px), (pointer: coarse) {
+      .btn {
+        min-height: 44px;
+        padding: 10px 18px;
+        font-size: 14px;
+      }
+    }
+    .alert-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--danger);
+      border-radius: 8px;
+      color: #fca5a5;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .alert-banner.visible {
+      display: flex;
+    }
+    .alert-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
     .qr-container {
       display: flex;
       flex-direction: column;
@@ -123,18 +182,26 @@
   <header>
     <h1>gmessages-rag Management Dashboard</h1>
     <div>
-      <span id="daemon-badge" class="badge badge-ok">Daemon: Active</span>
+      <span id="daemon-badge" class="badge badge-ok" aria-live="polite">Daemon: Active</span>
     </div>
   </header>
+
+  <div id="alert-banner" class="alert-banner" role="alert" aria-live="assertive">
+    <div id="alert-message">Network error connecting to daemon.</div>
+    <div class="alert-actions">
+      <button id="alert-retry-btn" class="btn btn-retry" onclick="retryFailedRequests()" aria-label="Retry network requests">Retry</button>
+      <button class="btn btn-close" onclick="dismissAlert()" aria-label="Dismiss alert">&times;</button>
+    </div>
+  </div>
 
   <div class="grid">
     <div class="card">
       <div class="card-title">Database Status</div>
-      <div id="db-status" class="card-value">-</div>
+      <div id="db-status" class="card-value" aria-live="polite">-</div>
     </div>
     <div class="card">
       <div class="card-title">Google Messages Link</div>
-      <div id="gm-status" class="card-value">-</div>
+      <div id="gm-status" class="card-value" aria-live="polite">-</div>
     </div>
     <div class="card">
       <div class="card-title">Unindexed Messages</div>
@@ -149,29 +216,70 @@
   </div>
 
   <div class="section-title">Tracked Contacts &amp; Conversations</div>
-  <table>
-    <thead>
-      <tr>
-        <th>Conversation ID</th>
-        <th>Name</th>
-        <th>Type</th>
-        <th>Last Activity</th>
-        <th>Tracking</th>
-      </tr>
-    </thead>
-    <tbody id="contacts-table-body">
-      <tr>
-        <td colspan="5" style="text-align: center; color: var(--text-muted);">Loading conversations...</td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Conversation ID</th>
+          <th scope="col">Name</th>
+          <th scope="col">Type</th>
+          <th scope="col">Last Activity</th>
+          <th scope="col">Tracking</th>
+        </tr>
+      </thead>
+      <tbody id="contacts-table-body">
+        <tr>
+          <td colspan="5" style="text-align: center; color: var(--text-muted);">Loading conversations...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 
   <script>
+    let hasStatusError = false;
+    let hasContactsError = false;
+
+    function showAlert(msg) {
+      const banner = document.getElementById('alert-banner');
+      const msgEl = document.getElementById('alert-message');
+      if (banner && msgEl) {
+        msgEl.textContent = msg;
+        banner.classList.add('visible');
+      }
+    }
+
+    function dismissAlert() {
+      const banner = document.getElementById('alert-banner');
+      if (banner) {
+        banner.classList.remove('visible');
+      }
+    }
+
+    function checkErrorState() {
+      if (hasStatusError && hasContactsError) {
+        showAlert('Failed to connect to daemon: /api/v1/status and /api/v1/contacts are unreachable.');
+      } else if (hasStatusError) {
+        showAlert('Warning: Failed to refresh daemon status from /api/v1/status.');
+      } else if (hasContactsError) {
+        showAlert('Warning: Failed to load conversations from /api/v1/contacts.');
+      } else {
+        dismissAlert();
+      }
+    }
+
+    async function retryFailedRequests() {
+      dismissAlert();
+      await Promise.all([fetchStatus(), fetchContacts()]);
+    }
+
     async function fetchStatus() {
       try {
         const res = await fetch('/api/v1/status');
-        if (!res.ok) throw new Error('Status fetch failed');
+        if (!res.ok) throw new Error('Status fetch failed with HTTP ' + res.status);
         const data = await res.json();
+
+        hasStatusError = false;
+        checkErrorState();
 
         const dbStatusEl = document.getElementById('db-status');
         if (data.db_connected) {
@@ -194,7 +302,8 @@
 
         document.getElementById('unindexed-count').textContent = data.unindexed_messages ?? 0;
       } catch (err) {
-        console.error('Error loading status:', err);
+        hasStatusError = true;
+        checkErrorState();
       }
     }
 
@@ -208,7 +317,7 @@
         if (!res.ok) throw new Error('Failed to update tracking');
         fetchContacts();
       } catch (err) {
-        alert('Failed to update tracking: ' + err.message);
+        showAlert('Failed to update tracking: ' + err.message);
       }
     }
 
@@ -220,11 +329,14 @@
     }
 
     async function fetchContacts() {
+      const tbody = document.getElementById('contacts-table-body');
       try {
         const res = await fetch('/api/v1/contacts');
-        if (!res.ok) throw new Error('Contacts fetch failed');
+        if (!res.ok) throw new Error('Contacts fetch failed with HTTP ' + res.status);
         const contacts = await res.json();
-        const tbody = document.getElementById('contacts-table-body');
+
+        hasContactsError = false;
+        checkErrorState();
 
         if (!contacts || contacts.length === 0) {
           tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No conversations found.</td></tr>';
@@ -238,6 +350,7 @@
           const type = c.is_group ? 'Group' : 'Direct';
           const trackBtnText = c.is_tracked ? 'Tracked' : 'Untracked';
           const trackBtnClass = c.is_tracked ? 'btn btn-track' : 'btn btn-untrack';
+          const displayName = c.name || 'Unnamed';
 
           const tdId = document.createElement('td');
           const codeEl = document.createElement('code');
@@ -246,7 +359,7 @@
 
           const tdName = document.createElement('td');
           const strongEl = document.createElement('strong');
-          strongEl.textContent = c.name || 'Unnamed';
+          strongEl.textContent = displayName;
           tdName.appendChild(strongEl);
 
           const tdType = document.createElement('td');
@@ -259,6 +372,7 @@
           const btn = document.createElement('button');
           btn.className = trackBtnClass;
           btn.textContent = trackBtnText;
+          btn.setAttribute('aria-label', 'Toggle tracking for ' + displayName);
           btn.onclick = () => toggleTrack(c.id, c.is_tracked);
           tdTrack.appendChild(btn);
 
@@ -270,7 +384,13 @@
           tbody.appendChild(tr);
         });
       } catch (err) {
-        console.error('Error loading contacts:', err);
+        hasContactsError = true;
+        checkErrorState();
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--danger);">' +
+            'Failed to load conversations. <button class="btn btn-retry" onclick="fetchContacts()" style="margin-left: 8px;" aria-label="Retry loading conversations">Retry</button>' +
+            '</td></tr>';
+        }
       }
     }
 

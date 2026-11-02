@@ -215,3 +215,44 @@ func TestDashboard_WithMockDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, conv.IsTracked)
 }
+
+// TestDashboardUI_AccessibilityAndResponsiveness verifies UI-04:
+// dashboard usability, accessibility (WCAG 2.1 AA), responsive table overflow,
+// touch targets, and API error recovery.
+func TestDashboardUI_AccessibilityAndResponsiveness(t *testing.T) {
+	handler := NewDashboardHandler(nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+
+	// 1. Responsive Layout & Mobile Table Overflow
+	assert.Contains(t, body, "class=\"table-responsive\"", "should contain responsive table container")
+	assert.Contains(t, body, "overflow-x: auto", "table container must have horizontal overflow scrolling")
+	assert.Contains(t, body, "scrollbar-gutter: stable", "table container must preserve stable scrollbar gutter")
+	assert.Contains(t, body, "minmax(clamp(200px, 30vw, 300px), 1fr)", "grid cards must have responsive clamp/minmax sizing")
+
+	// 2. Touch Targets & Focus States
+	assert.Contains(t, body, "min-height: 44px", "touch-first viewports must enforce >=44px min-height touch targets")
+	assert.Contains(t, body, ":focus-visible", "must implement high-contrast focus-visible ring styles")
+
+	// 3. Accessibility & ARIA
+	assert.Contains(t, body, `id="daemon-badge" class="badge badge-ok" aria-live="polite"`, "daemon badge should have aria-live=polite")
+	assert.Contains(t, body, `id="db-status" class="card-value" aria-live="polite"`, "db status should have aria-live=polite")
+	assert.Contains(t, body, `id="gm-status" class="card-value" aria-live="polite"`, "gm status should have aria-live=polite")
+	assert.Contains(t, body, `<th scope="col">Conversation ID</th>`, "table headers must have scope=col")
+	assert.Contains(t, body, `<th scope="col">Name</th>`, "table headers must have scope=col")
+	assert.Contains(t, body, `<th scope="col">Type</th>`, "table headers must have scope=col")
+	assert.Contains(t, body, `<th scope="col">Last Activity</th>`, "table headers must have scope=col")
+	assert.Contains(t, body, `<th scope="col">Tracking</th>`, "table headers must have scope=col")
+	assert.Contains(t, body, `btn.setAttribute('aria-label', 'Toggle tracking for ' + displayName)`, "toggle button must set dynamic aria-label")
+
+	// 4. Network Error & Empty State Recovery
+	assert.Contains(t, body, `id="alert-banner" class="alert-banner" role="alert"`, "must have dismissible/retryable alert banner with role=alert")
+	assert.Contains(t, body, `id="alert-retry-btn"`, "must have retry button in alert banner")
+	assert.Contains(t, body, `retryFailedRequests()`, "must have handler to retry failed requests")
+	assert.Contains(t, body, `Retry loading conversations`, "must provide retry button in contacts empty/error state")
+}
