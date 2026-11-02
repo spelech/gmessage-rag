@@ -77,8 +77,8 @@ func BuildServeMuxWithTuner(database *db.DB, gmClient *gm.Client, mcpSrv *mcpser
 	return rootMux
 }
 
-// StartETLForTrackedContacts triggers background ETL backfill ingestion for tracked contacts.
-func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, database *db.DB, gmClient *gm.Client, trackedContacts []string, batchSize int) {
+// StartETLForTrackedContacts triggers background ETL backfill ingestion for tracked contacts and triggers sessionization.
+func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, database *db.DB, gmClient *gm.Client, sessionizer *pipeline.Sessionizer, trackedContacts []string, batchSize int) {
 	if len(trackedContacts) == 0 || database == nil || gmClient == nil {
 		return
 	}
@@ -122,6 +122,12 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 					break
 				}
 				cursor = nextCursor
+			}
+
+			if sessionizer != nil {
+				if _, err := sessionizer.ProcessUnassignedMessages(ctx, contactID); err != nil && ctx.Err() == nil {
+					logger.Warn().Err(err).Str("contact_id", contactID).Msg("Sessionizer processing failed after ETL backfill")
+				}
 			}
 		}
 		logger.Info().Msg("Completed background ETL sync pass for tracked contacts")
@@ -172,12 +178,37 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logger:                  logger.With().Str("component", "watchdog").Logger(),
 	})
 
-	// 5. Initialize debouncer
+	// 5. Initialize LLM Client & Sessionizer
+	llmClient := pipeline.NewOpenAIClient(pipeline.LLMClientConfig{
+		LLMBaseURL:          cfg.LLMBaseURL,
+		LLMAPIKey:           cfg.LLMAPIKey,
+		SummaryModel:        cfg.SummaryModel,
+		EmbeddingBaseURL:    cfg.EmbeddingBaseURL,
+		EmbeddingAPIKey:     cfg.EmbeddingAPIKey,
+		EmbeddingModel:      cfg.EmbeddingModel,
+		EmbeddingDimensions: cfg.EmbeddingDimensions,
+	})
+
+	sessionizer := pipeline.NewSessionizer(pipeline.SessionizerConfig{
+		Store:           database,
+		LLMClient:       llmClient,
+		SessionGapHours: cfg.SessionGapHours,
+		Location:        cfg.Location,
+		Logger:          logger.With().Str("component", "sessionizer").Logger(),
+	})
+
+	// 6. Initialize debouncer
 	debouncer := pipeline.NewSmartDebouncer(pipeline.DebouncerConfig{
 		IdleTimeout: time.Duration(cfg.DossierDebounceMinutes) * time.Minute,
 		Logger:      logger.With().Str("component", "debouncer").Logger(),
 		OnFlush: func(flushCtx context.Context, conversationID string) error {
 			logger.Info().Str("conversation_id", conversationID).Msg("Debounced conversation flush triggered")
+			sessions, err := sessionizer.ProcessUnassignedMessages(flushCtx, conversationID)
+			if err != nil {
+				logger.Error().Err(err).Str("conversation_id", conversationID).Msg("Failed to sessionize messages on flush")
+				return err
+			}
+			logger.Info().Str("conversation_id", conversationID).Int("session_count", len(sessions)).Msg("Completed sessionization on flush")
 			return nil
 		},
 	})
@@ -225,7 +256,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	rootMux := BuildServeMuxWithTuner(database, gmClient, mcpServer, metrics, tuner)
 
 	// 8. Start background batch ETL pipeline for any tracked contacts
-	StartETLForTrackedContacts(ctx, logger, database, gmClient, cfg.TrackedContacts, cfg.MaxBackfillMessages)
+	StartETLForTrackedContacts(ctx, logger, database, gmClient, sessionizer, cfg.TrackedContacts, cfg.MaxBackfillMessages)
 
 	// 9. Configure and start HTTP server
 	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)
