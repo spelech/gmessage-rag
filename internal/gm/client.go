@@ -53,6 +53,13 @@ type Client struct {
 	currentEmoji  string
 }
 
+// Compile-time conformance for the ingestion seams the daemon and ETL consume.
+var (
+	_ MessageFetcher  = (*Client)(nil)
+	_ ContactsFetcher = (*Client)(nil)
+	_ MediaDownloader = (*Client)(nil)
+)
+
 // NewClient initializes a new GM Client wrapper.
 func NewClient(opts ClientOptions) (*Client, error) {
 	sessionPath := opts.SessionPath

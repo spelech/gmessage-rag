@@ -7,8 +7,10 @@
 // This slice covers the pairing handshake surface needed to drive
 // libgm.StartLogin to a QR challenge without touching Google, and injects the
 // long-poll PairEvent so a full pairing completes (session persisted) hermetically.
-// Remaining RPCs (RefreshPhoneRelay, SignInGaia, SendMessage, FetchMessages,
-// ListContacts, media) are tracked in issue #62.
+// It also serves the post-pairing RPC surface needed for ingestion: FetchMessages
+// (LIST_MESSAGES), ListContacts (LIST_CONTACTS), and media download (/upload).
+// Remaining RPCs (RefreshPhoneRelay, SignInGaia, SendMessage, upload) are tracked
+// in issue #62.
 package emulator
 
 import (
@@ -31,15 +33,25 @@ var DefaultPairingKey = []byte("emulator-pairing-key")
 // Transport routes libgm requests to in-process handlers by URL suffix.
 // It implements http.RoundTripper.
 type Transport struct {
-	mu         sync.Mutex
-	pairingKey []byte
-	requests   []string
-	paired     bool
+	mu           sync.Mutex
+	pairingKey   []byte
+	requests     []string
+	paired       bool
+	responses    chan *gmproto.IncomingRPCMessage
+	cipher       RequestCipher
+	messagePages map[string]map[string]MessagePage
+	contacts     []*gmproto.Contact
+	media        map[string]mediaFixture
 }
 
 // NewTransport creates an emulator transport with default fixtures.
 func NewTransport() *Transport {
-	return &Transport{pairingKey: append([]byte(nil), DefaultPairingKey...)}
+	return &Transport{
+		pairingKey:   append([]byte(nil), DefaultPairingKey...),
+		responses:    make(chan *gmproto.IncomingRPCMessage, 32),
+		messagePages: make(map[string]map[string]MessagePage),
+		media:        make(map[string]mediaFixture),
+	}
 }
 
 // SetPaired marks the transport as having already delivered the pairing event.
@@ -110,10 +122,24 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return t.pairingResponse(req)
 		}
 
-		// Steady-state long-poll: block until the caller cancels. Injecting
-		// post-pairing message events is tracked in #62.
-		<-req.Context().Done()
-		return nil, req.Context().Err()
+		// Steady-state long-poll: deliver the next queued RPC response, or block
+		// until one arrives or the caller cancels.
+		select {
+		case msg := <-t.responses:
+			return t.responseFrame(req, msg)
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		}
+
+	case strings.HasSuffix(path, "/SendMessage"):
+		return t.handleSendMessage(req)
+
+	case strings.HasSuffix(path, "/upload"):
+		return t.handleMediaDownload(req)
+
+	case strings.HasSuffix(path, "/AckMessages"):
+		// Acks are fire-and-forget; acknowledge without a synthetic response.
+		return protobufResponse(req, &gmproto.OutgoingRPCResponse{})
 
 	default:
 		return nil, fmt.Errorf("emulator (HARN-02): unhandled endpoint %q", path)

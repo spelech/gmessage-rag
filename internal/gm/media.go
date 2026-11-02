@@ -24,6 +24,11 @@ type MediaDownloader interface {
 	DownloadMedia(mediaID string, key []byte) (io.ReadCloser, error)
 }
 
+// DownloadMedia implements MediaDownloader by forwarding to the underlying libgm client.
+func (c *Client) DownloadMedia(mediaID string, key []byte) (io.ReadCloser, error) {
+	return c.libgmClient.DownloadMedia(mediaID, key)
+}
+
 // FullSizeImageDownloader abstracts requesting full-resolution media from libgm.
 // Requirement ID: SEC-02
 type FullSizeImageDownloader interface {

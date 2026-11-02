@@ -70,8 +70,8 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`SEC-01`** | `SEC` | [~] Partial | **Content-Addressed Media Decryption** | PR #34, commit `1141504` | Decrypts RCS attachments, computes a SHA-256 hash, and stores files at `/data/media/<h1h2>/<h3h4>/<hash>.<ext>` with duplicate avoidance. **Partial:** decrypt/hash/store is implemented and tested, but nothing in ingestion calls it (no non-test caller of `UpsertMediaAttachment`). | `internal/gm/media_test.go::TestMediaDownload_SHA256Pathing` |
 | **`SEC-02`** | `SEC` | [x] Complete | **Full-Resolution Media Retrieval** | PR #38, commit `8d5b7e4` | When opted-in (`PULL_FULL_SIZE_MEDIA=true`), requests full-resolution image assets via `GetFullSizeImage` before running Vision OCR (default: progressive thumbnail). | `internal/gm/media_test.go::TestMediaDownload_FullSizeOption` |
 | **`SEC-03`** | `SEC` | [x] Complete | **CI Vulnerability Scanning & Race Checks** | Issue #30, commit `30b0cb6` | Enforces `govulncheck` static call-graph vulnerability scanning and `go test -race` concurrency validation in CI and Makefile targets. | `gate:Makefile`, `gate:.github/workflows/ci.yml` |
-| **`HARN-01`** | `HARN` | [~] Partial | **Protobuf Disturbance Simulation Fixture** | Issue #29, commit `ecac8e2` | In-memory Google Messages simulation server injecting synthetic protobuf frames (disconnects, media bursts, typing events, payload corruption). **Partial:** the fixture and its tests exist, but no daemon or `libgm` code consumes it (no non-test caller of `NewMockGMServer`), so it verifies itself only. | `internal/gm/testing/mock_server_test.go::TestMockGMServer_DisturbanceRecovery` |
-| **`HARN-02`** | `HARN` | [~] Partial | **In-Process libgm Protocol Emulator** | Issue #62, PR #69, commit `132d12e` | Hermetic, in-process implementation of the Google Messages RPC surface, wired through `exhttp.ClientSettings.TransportOverride` (no libgm fork). **Partial:** the pairing handshake (`RegisterPhoneRelay`, `/web/config`) and long-poll `PairEvent` are covered; `FetchMessages`, `ListContacts`, `SendMessage`, and media are not. | `internal/gm/emulator_e2e_test.go::TestEmulator_PairingCompletesPairDone` |
+| **`HARN-01`** | `HARN` | [x] Complete | **Protobuf Disturbance Simulation Fixture** | Issue #29, commit `ecac8e2` | In-memory Google Messages simulation server injecting synthetic protobuf frames (disconnects, media bursts, typing events, payload corruption). `MockGMServer` now exposes an in-process `Settings()`/`Transport()` seam consumed by real `libgm`/`gm.Client` code, so injected disturbances surface through the production ingestion path. | `internal/gm/testing/mock_server_test.go::TestMockServer_DisturbanceFailsFetch`, `internal/gm/testing/mock_server_test.go::TestMockGMServer_Disturbance_HTTPErrorAndCorruptPayload`, `internal/gm/testing/mock_server_test.go::TestMockGMServer_LifecycleAndEmission` |
+| **`HARN-02`** | `HARN` | [x] Complete | **In-Process libgm Protocol Emulator** | Issue #62, PR #69, commit `132d12e` | Hermetic, in-process implementation of the Google Messages RPC surface, wired through `exhttp.ClientSettings.TransportOverride` (no libgm fork). Covers the pairing handshake (`RegisterPhoneRelay`, `/web/config`, long-poll `PairEvent`), `FetchMessages` cursor paging, `ListContacts`, and media download (`/upload`). | `internal/gm/emulator_e2e_test.go::TestEmulator_PairingCompletesPairDone`, `internal/gm/testing/mock_server_test.go::TestMockServer_FetchMessages`, `internal/gm/testing/mock_server_test.go::TestMockServer_ListContacts` |
 | **`HARN-03`** | `HARN` | [x] Complete | **Hermetic Test Suite & Live Network Quarantine** | Issue #63 | Default `go test ./...` runs fully offline: `internal/gm` installs a deny-all HTTP transport via the `libgm` constructor seam. Live-network tests are quarantined behind the `live` build tag and `LIVE_GM_TEST=1`. | `internal/gm/hermetic_test.go::TestHermeticGuard_BlocksOutboundRegistration` |
 | **`HARN-04`** | `HARN` | [ ] In Progress | **Gated Real-Device Live Smoke Test** | Issue #65 | One opt-in end-to-end test (`//go:build live`) that pairs via Gaia emoji, asserts `0600` session persistence, connects, waits for one real inbound message, and verifies the persistence handoff. Never runs in CI. | `internal/gm/live_smoke_test.go::TestLiveSmoke_EndToEnd` |
 | **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/dashboard_test.go::TestDashboardUI_AssetServing`, `internal/web/api.go` handlers |
@@ -268,19 +268,19 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 
 ### `HARN-01`: Controls-Grade Protobuf Disturbance Simulation Fixture
 - **Category**: `HARN` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Issue #29, commit `ecac8e2`)
-- **Description**: Provides an in-memory Google Messages WebSocket simulation harness capable of injecting raw protobuf disturbance frames (pairing challenges, sudden socket disconnections, bursts of concurrent RCS media attachments, rapid-fire typing indicators, corrupt chunks) to verify daemon resilience without physical hardware.
-- **Verification**: Simulation suite running in CI with zero hardware dependencies, verifying deterministic recovery.
+- **Status**: `[x] Complete` (Issue #29, commit `ecac8e2`; Issue #82)
+- **Description**: Provides an in-memory Google Messages simulation harness capable of injecting raw protobuf disturbance frames (pairing challenges, sudden socket disconnections, bursts of concurrent RCS media attachments, rapid-fire typing indicators, corrupt chunks) to verify daemon resilience without physical hardware. `MockGMServer` additionally exposes an in-process `Settings()`/`Transport()` seam that the real `gm.Client` consumes through `exhttp.ClientSettings.TransportOverride`, so disturbance injection is exercised against production libgm code, not only the fixture's own unit tests.
+- **Verification**: `internal/gm/testing/mock_server_test.go::TestMockServer_DisturbanceFailsFetch` drives the real `gm.Client.FetchMessages` and asserts the injected 503 surfaces through the ingestion path. `TestMockGMServer_Disturbance_HTTPErrorAndCorruptPayload` and `TestMockGMServer_LifecycleAndEmission` cover the SSE disturbance and framing surface. The suite runs in CI with zero hardware dependencies.
 
 ### `HARN-02`: In-Process libgm Protocol Emulator
 - **Category**: `HARN` (`PositiveFeature`)
-- **Status**: `[ ] In Progress` (Issue #62)
-- **Description**: An in-repo, hermetic emulator for the Google Messages HTTP RPC surface that `libgm` speaks, wired through `exhttp.ClientSettings.TransportOverride`. No `libgm` fork and no sockets. Covers the pairing handshake end to end:
-  1. `RegisterPhoneRelay` returns a valid `RegisterPhoneRelayResponse` (pairing key, token data, browser device).
-  2. `/web/config` returns a `Config` payload.
-  3. The first `ReceiveMessages` long-poll returns a `PairEvent` (`RPCPairData_Paired`) in the `[[ ... ]]` pblite stream; subsequent calls block until cancellation.
-- **Remaining scope (Issue #62)**: `RefreshPhoneRelay`, `SignInGaia`/`RegisterRefresh`, `SendMessage`/`AckMessages`, `FetchMessages` cursor paging, `ListContacts`, media upload/download, and post-pairing `WrappedMessage` event injection.
-- **Verification**: `internal/gm/emulator_e2e_test.go::TestEmulator_StartLoginReturnsQR` asserts a QR challenge; `TestEmulator_PairingCompletesPairDone` drives the real `gm.Client` event loop to a completed pairing (`pairDone` closes, session persisted with the paired browser device) with zero network access.
+- **Status**: `[x] Complete` (Issue #62, PR #69, commit `132d12e`; Issue #82)
+- **Description**: An in-repo, hermetic emulator for the Google Messages HTTP RPC surface that `libgm` speaks, wired through `exhttp.ClientSettings.TransportOverride`. No `libgm` fork and no sockets. Covers:
+  1. The pairing handshake end to end: `RegisterPhoneRelay` returns a valid `RegisterPhoneRelayResponse` (pairing key, token data, browser device); `/web/config` returns a `Config` payload; the first `ReceiveMessages` long-poll returns a `PairEvent` (`RPCPairData_Paired`) in the `[[ ... ]]` pblite stream.
+  2. Post-pairing RPC responses delivered on the `ReceiveMessages` long-poll: `FetchMessages` (`LIST_MESSAGES`) cursor paging, `ListContacts` (`LIST_CONTACTS`), and `IsBugleDefault`.
+  3. Media download over `/upload`: encrypted AES-GCM media fixtures returned for registered attachment IDs.
+- **Remaining scope**: `RefreshPhoneRelay`, `SignInGaia`/`RegisterRefresh`, `SendMessage`/`AckMessages`, and media upload remain unimplemented and are tracked in issue #62.
+- **Verification**: `internal/gm/emulator_e2e_test.go::TestEmulator_StartLoginReturnsQR` and `TestEmulator_PairingCompletesPairDone` drive the real `gm.Client` pairing loop hermetically. `internal/gm/testing/mock_server_test.go::TestMockServer_FetchMessages` and `::TestMockServer_ListContacts` drive the real `gm.Client` end-to-end through the emulator and assert observable paged messages and normalized contacts with zero network access.
 
 ### `HARN-03`: Hermetic Test Suite & Live Network Quarantine
 - **Category**: `HARN` (`FailClosedGuardrail`)
@@ -446,11 +446,11 @@ row must now point at a test that exists; CI enforces this via `scripts/check_tr
 | `PIPE-05` | Complete | Partial | `RecordTypingType` exists but is never called |
 | `PIPE-06` | Complete | Partial | Message ETL real; no embedding/vector staging |
 | `SEC-01` | Complete | Partial | Decrypt/hash/store tested; no ingestion caller |
-| `HARN-01` | Complete | Partial | Mock server tests itself; no daemon/`libgm` consumer |
+| `HARN-01` | Complete | Complete | Mock server `Settings()`/`Transport()` consumed by real `gm.Client`; disturbance proof added (#82) |
 | `AUTH-04` | Complete | Partial | Success path needs live smoke; proof path did not exist |
 | `MCP-01`..`MCP-06` | Complete | Partial | Tools registered, but every handler is a stub |
 | `TRANS-03` | Complete | Not Started | No briefing route and no webhook dispatch |
 | `UI-02`,`UI-05` | Complete | Partial | Panels work; embedded MCP calls resolve to stubs |
 | `UI-01`,`DAEMON-01`,`TRANS-01`,`TRANS-02` | Complete | Complete | Status correct; proof paths corrected to existing tests |
 | `DB-07` | In Progress | Complete | CI Postgres service merged (PR #73) |
-| `HARN-02` | In Progress | Partial | Pairing emulator merged; other RPCs pending |
+| `HARN-02` | In Progress | Complete | FetchMessages/ListContacts/media emulated; real `gm.Client` proofs added (#82) |
