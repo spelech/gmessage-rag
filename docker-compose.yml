@@ -54,7 +54,7 @@ services:
       - ${DATA_DIR:-./data}/media:/data/media
       - ${DATA_DIR:-./data}/dossiers:/data/dossiers
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8090/healthz/live || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8090/healthz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -62,3 +62,9 @@ services:
 
 volumes:
   pgdata:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 192.168.48.0/24

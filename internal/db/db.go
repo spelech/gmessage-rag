@@ -32,6 +32,7 @@ func Connect(ctx context.Context, databaseURL string) (*DB, error) {
 
 	// Register pgvector types on each newly established connection
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, _ = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
 		return pgxvec.RegisterTypes(ctx, conn)
 	}
 
