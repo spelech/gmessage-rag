@@ -90,3 +90,100 @@ ORDER BY id ASC;
 
 	return list, nil
 }
+
+// UpdateMediaAttachmentVision updates the OCR text, visual description, and vision_processed status of a media attachment.
+func (d *DB) UpdateMediaAttachmentVision(ctx context.Context, id int64, ocrText, visualDesc *string, processed bool) error {
+	if d == nil || d.Pool == nil {
+		return fmt.Errorf("database pool is not connected")
+	}
+
+	const updateVisionSQL = `
+UPDATE media_attachments
+SET ocr_text = $1,
+    visual_description = $2,
+    vision_processed = $3
+WHERE id = $4;
+`
+	tag, err := d.Pool.Exec(ctx, updateVisionSQL, ocrText, visualDesc, processed, id)
+	if err != nil {
+		return fmt.Errorf("update media attachment vision: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetUnprocessedMediaAttachments retrieves up to limit media attachments that have vision_processed = false.
+// If conversationID is non-empty, results are scoped to that conversation.
+func (d *DB) GetUnprocessedMediaAttachments(ctx context.Context, conversationID string, limit int) ([]MediaAttachment, error) {
+	if d == nil || d.Pool == nil {
+		return nil, fmt.Errorf("database pool is not connected")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	var rowsQuery string
+	var args []any
+	if conversationID != "" {
+		rowsQuery = `
+SELECT
+    id, message_id, conversation_id, sha256_hash, relative_path, mime_type,
+    file_size_bytes, width, height, ocr_text, visual_description,
+    vision_processed, created_at
+FROM media_attachments
+WHERE vision_processed = FALSE AND conversation_id = $1
+ORDER BY created_at ASC
+LIMIT $2;
+`
+		args = []any{conversationID, limit}
+	} else {
+		rowsQuery = `
+SELECT
+    id, message_id, conversation_id, sha256_hash, relative_path, mime_type,
+    file_size_bytes, width, height, ocr_text, visual_description,
+    vision_processed, created_at
+FROM media_attachments
+WHERE vision_processed = FALSE
+ORDER BY created_at ASC
+LIMIT $1;
+`
+		args = []any{limit}
+	}
+
+	rows, err := d.Pool.Query(ctx, rowsQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query unprocessed media attachments: %w", err)
+	}
+	defer rows.Close()
+
+	var list []MediaAttachment
+	for rows.Next() {
+		var m MediaAttachment
+		if err := rows.Scan(
+			&m.ID,
+			&m.MessageID,
+			&m.ConversationID,
+			&m.SHA256Hash,
+			&m.RelativePath,
+			&m.MimeType,
+			&m.FileSizeBytes,
+			&m.Width,
+			&m.Height,
+			&m.OCRText,
+			&m.VisualDescription,
+			&m.VisionProcessed,
+			&m.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan unprocessed media attachment row: %w", err)
+		}
+		list = append(list, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unprocessed media attachment rows: %w", err)
+	}
+
+	return list, nil
+}

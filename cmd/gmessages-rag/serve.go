@@ -172,12 +172,31 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logger:                  logger.With().Str("component", "watchdog").Logger(),
 	})
 
-	// 5. Initialize debouncer
+	// 5. Initialize Vision Service & Debouncer
+	visionClient := pipeline.NewOpenAIVisionClient(pipeline.OpenAIVisionClientConfig{
+		BaseURL: cfg.LLMBaseURL,
+		APIKey:  cfg.LLMAPIKey,
+		Model:   cfg.VisionModel,
+		Logger:  logger.With().Str("component", "vision").Logger(),
+	})
+	visionService := &pipeline.VisionService{
+		Client:   visionClient,
+		Database: database,
+		MediaDir: cfg.MediaDir,
+		Logger:   logger.With().Str("component", "vision").Logger(),
+	}
+
 	debouncer := pipeline.NewSmartDebouncer(pipeline.DebouncerConfig{
 		IdleTimeout: time.Duration(cfg.DossierDebounceMinutes) * time.Minute,
 		Logger:      logger.With().Str("component", "debouncer").Logger(),
 		OnFlush: func(flushCtx context.Context, conversationID string) error {
 			logger.Info().Str("conversation_id", conversationID).Msg("Debounced conversation flush triggered")
+			// Process pending vision OCR for image attachments in this conversation (PIPE-01)
+			if count, ocrErr := visionService.ProcessUnprocessedAttachments(flushCtx, conversationID, 50); ocrErr != nil {
+				logger.Warn().Err(ocrErr).Str("conversation_id", conversationID).Msg("Vision OCR processing encountered error")
+			} else if count > 0 {
+				logger.Info().Int("count", count).Str("conversation_id", conversationID).Msg("Processed vision OCR for attachments")
+			}
 			return nil
 		},
 	})
