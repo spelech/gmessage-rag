@@ -67,3 +67,21 @@ type ContactDossierHistory struct {
 	TriggerSessionID *int64         `json:"trigger_session_id,omitempty"`
 	CreatedAt        time.Time      `json:"created_at"`
 }
+
+// MediaAttachment represents an attachment record associated with a message.
+type MediaAttachment struct {
+	ID                int64     `json:"id"`
+	MessageID         string    `json:"message_id"`
+	ConversationID    string    `json:"conversation_id"`
+	SHA256Hash        string    `json:"sha256_hash"`
+	RelativePath      string    `json:"relative_path"`
+	MimeType          string    `json:"mime_type"`
+	FileSizeBytes     int64     `json:"file_size_bytes"`
+	Width             *int      `json:"width,omitempty"`
+	Height            *int      `json:"height,omitempty"`
+	OCRText           *string   `json:"ocr_text,omitempty"`
+	VisualDescription *string   `json:"visual_description,omitempty"`
+	VisionProcessed   bool      `json:"vision_processed"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
