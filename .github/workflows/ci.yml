@@ -141,3 +141,6 @@ jobs:
           test -f docs/REQUIREMENTS.md || (echo "Missing docs/REQUIREMENTS.md" && exit 1)
           test -f docs/CHANGELOG.md || (echo "Missing docs/CHANGELOG.md" && exit 1)
           test -f docs/PLAN.md || (echo "Missing docs/PLAN.md" && exit 1)
+
+      - name: Enforce Requirement Traceability
+        run: bash scripts/check_traceability.sh

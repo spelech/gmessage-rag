@@ -1,4 +1,4 @@
-.PHONY: all build test test-integration test-live lint vulncheck run compose-up compose-down pair clean
+.PHONY: all build test test-integration test-live traceability lint vulncheck run compose-up compose-down pair clean
 
 GOBIN ?= $(shell go env GOPATH)/bin
 
@@ -31,6 +31,10 @@ test-live-compile:
 lint:
 	test -z "$$(gofmt -l .)" || (echo "Unformatted files found:" && gofmt -d . && exit 1)
 	go vet ./...
+
+# Fails if any [x] Complete SRS row cites a test or artifact that does not exist (Issue #75).
+traceability:
+	bash scripts/check_traceability.sh
 
 vulncheck:
 	@which govulncheck > /dev/null 2>&1 || (echo "Installing govulncheck..." && go install golang.org/x/vuln/cmd/govulncheck@latest)
