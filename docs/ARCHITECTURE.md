@@ -386,4 +386,74 @@ flowchart TD
 - **Hybrid RRF Search Workbench**: Input arbitrary text queries and vector embeddings to view top-$N$ ranked chunks, showing full-text rank vs cosine similarity rank side-by-side.
 - **Dossier Audit Diff Viewer**: Side-by-side chronological diff viewer showing how a contact's Living Dossier evolved across versions in `contact_dossier_history`.
 
+---
+
+## Standardized Batch ETL Ingestion Pipeline (`PIPE-06`)
+
+To handle massive historical backfills (threads with 10,000+ messages) and continuous real-time streaming without memory bloat or database lock contention, ingestion follows a strict 3-stage ETL pattern:
+
+```mermaid
+flowchart LR
+    subgraph Extract["1. Extract"]
+        LibGM["libgm FetchMessages<br>(Cursor Paginated)"]
+    end
+
+    subgraph Transform["2. Transform"]
+        NormTS["Normalize Timestamps<br>(µs / ms -> UTC)"]
+        DirRes["Resolve Direction<br>(Incoming / Outgoing)"]
+        ReadHeur["Read State Heuristic<br>(Reply implies Delivered)"]
+        MediaExtract["Content-Addressed Media<br>(SHA-256 / Full-Size)"]
+    end
+
+    subgraph Load["3. Load & Index"]
+        BatchUpsert["Batch Upsert<br>(ON CONFLICT DO UPDATE)"]
+        SessionChunk["Sessionizer<br>(2h Calendar Windows)"]
+        VectorEmbed["pgvector + GIN<br>(HNSW halfvec(1536))"]
+    end
+
+    Extract --> NormTS --> DirRes --> ReadHeur --> MediaExtract --> BatchUpsert --> SessionChunk --> VectorEmbed
+```
+
+### Inferred Read & Delivery Heuristic (`DB-06`)
+SMS and cross-carrier RCS (e.g. from iOS contacts) frequently drop explicit delivery and read receipts (`OUTGOING_DISPLAYED`). When `ENABLE_READ_RECEIPT_HEURISTIC=true`:
+- An incoming reply from contact $C$ at timestamp $T_{\text{reply}}$ proves contact receipt.
+- All preceding outgoing messages to $C$ where $T_{\text{sent}} \le T_{\text{reply}}$ are inferred as delivered and acknowledged.
+
+---
+
+## Push Notification & Mobile Re-Auth Flow (`AUTH-03`, `TRANS-04`)
+
+Users do not need direct shell or terminal access when Google session renewal is required or when service drops occur:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant LibGM as libgm Client
+    participant Watchdog as Auth & Connection Watchdog
+    participant Apprise as Apprise / ntfy Dispatcher
+    participant Phone as User Phone / Remote Device
+    participant WebUI as Web Management UI (:8090/pair)
+
+    alt Session Unlinked or Token Refresh Failed
+        LibGM->>Watchdog: GaiaLoggedOut / Refresh Token Error
+        Watchdog->>Apprise: POST ntfy/Apprise ("Session unlinked. Tap to re-pair")
+        Apprise-->>Phone: High-priority Push Notification with action link
+        Phone->>WebUI: Open https://host:8090/pair
+        WebUI-->>Phone: Render live QR Code
+        Phone->>LibGM: Scan QR via Google Messages app
+        LibGM->>Watchdog: PairSuccessful
+        Watchdog->>Apprise: POST ntfy ("Pairing successful. Daemon online.")
+    else Transient Cell Drop at Work
+        LibGM->>Watchdog: PhoneNotResponding
+        Watchdog->>Watchdog: Start 15m Grace Period Timer (Suppresses Alerts)
+        LibGM->>Watchdog: PhoneRespondingAgain
+        Watchdog->>Watchdog: Cancel Timer (Zero Alert Fatigue)
+    end
+```
+
+### Smart Action-Aware Debouncing (`PIPE-05`)
+- In addition to completed message timestamps, `internal/pipeline/debouncer.go` listens to `UpdateEvents_TypingEvent`.
+- If participant is typing or user is drafting an outbound response, the 30-minute idle window pauses or resets, avoiding split sessions while thoughts are being exchanged.
+
+
 
