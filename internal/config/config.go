@@ -27,6 +27,7 @@ type Config struct {
 	DossierDebounceMinutes      int
 	MaxBackfillMessages         int
 	EnableMCPSendMessage        bool
+	MCPAccessToken              string
 	WebhookURL                  string
 	AppriseURL                  string
 	NtfyURL                     string
@@ -87,6 +88,7 @@ func LoadConfig() (*Config, error) {
 		DossierDebounceMinutes:      debounceMins,
 		MaxBackfillMessages:         maxBackfill,
 		EnableMCPSendMessage:        enableSend,
+		MCPAccessToken:              getEnv("MCP_ACCESS_TOKEN", ""),
 		WebhookURL:                  getEnv("WEBHOOK_URL", ""),
 		AppriseURL:                  getEnv("APPRISE_URL", ""),
 		NtfyURL:                     getEnv("NTFY_URL", ""),

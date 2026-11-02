@@ -220,6 +220,35 @@ WHERE id = $1;
 	return nil
 }
 
+// ResetConversationBackfill clears the backfill cursor and completion flag
+// so a historical pagination pass can be re-initiated from the start.
+func (d *DB) ResetConversationBackfill(ctx context.Context, conversationID string) error {
+	if d == nil || d.Pool == nil {
+		return errors.New("database pool is not initialized")
+	}
+	if conversationID == "" {
+		return errors.New("conversationID cannot be empty")
+	}
+
+	const resetBackfillSQL = `
+UPDATE conversations
+SET backfill_cursor = NULL,
+    backfill_complete = FALSE,
+    updated_at = NOW()
+WHERE id = $1;
+`
+
+	tag, err := d.Pool.Exec(ctx, resetBackfillSQL, conversationID)
+	if err != nil {
+		return fmt.Errorf("reset conversation backfill: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 // UpdateConversationBackfillCursor updates the backfill cursor for a conversation.
 func (d *DB) UpdateConversationBackfillCursor(ctx context.Context, conversationID string, cursor *string) error {
 	if d == nil || d.Pool == nil {

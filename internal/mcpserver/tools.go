@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 )
 
 // ToolHandler defines the execution function signature for an MCP tool.
@@ -168,19 +167,4 @@ func BuiltinToolDefinitions(enableSendMessage bool) []Tool {
 	}
 
 	return tools
-}
-
-// DefaultStubHandler returns a placeholder tool response wrapping output in guardrail tags.
-func DefaultStubHandler(toolName string) ToolHandler {
-	return func(ctx context.Context, args json.RawMessage) (*CallToolResult, error) {
-		payload := fmt.Sprintf("[%s] executed successfully with arguments: %s", toolName, string(args))
-		return &CallToolResult{
-			Content: []ToolContent{
-				{
-					Type: "text",
-					Text: WrapUntrustedData(payload),
-				},
-			},
-		}, nil
-	}
 }

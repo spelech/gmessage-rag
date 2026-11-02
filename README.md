@@ -155,6 +155,7 @@ Once running, navigate to port `8090` on your host:
 | **`DOSSIER_DEBOUNCE_MINUTES`** | `30` | Idle messaging silence required before dossier reconciliation |
 | **`MAX_BACKFILL_MESSAGES`** | `5000` | Maximum messages to fetch during initial cursor pagination |
 | **`ENABLE_MCP_SEND_MESSAGE`**| `false` | Gatekeeper guardrail allowing outbound `send_message` MCP tool |
+| **`MCP_ACCESS_TOKEN`** | `""` | Optional bearer token required on every `tools/call` (`Mcp-Access-Token` or `Authorization: Bearer`) |
 | **`WEBHOOK_URL`** | `""` | Outbound HTTP POST target triggered on dossier updates |
 | **`APPRISE_URL`** | `""` | Apprise notification gateway URL for push alerts |
 | **`NTFY_URL`** | `""` | ntfy topic URL for direct mobile push notifications |

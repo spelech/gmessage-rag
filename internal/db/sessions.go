@@ -187,3 +187,75 @@ func (d *DB) SearchSessionsHybrid_RRF(
 ) ([]SessionSearchResult, error) {
 	return d.SearchSessionsHybrid(ctx, conversationID, queryText, nil, nil, nil, limit)
 }
+
+// SearchSessionsHybridAllConversations executes Hybrid RRF fusion across every conversation.
+func (d *DB) SearchSessionsHybridAllConversations(
+	ctx context.Context,
+	queryText string,
+	queryVec []float32,
+	dateFrom *time.Time,
+	dateTo *time.Time,
+	limit int,
+) ([]SessionSearchResult, error) {
+	const rrfQueryAll = `
+WITH fts_matches AS (
+    SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank_cd(search_tsv, websearch_to_tsquery('english', $1)) DESC) AS rank_ix
+    FROM conversation_sessions
+    WHERE ($2::timestamptz IS NULL OR started_at >= $2)
+      AND ($3::timestamptz IS NULL OR ended_at <= $3)
+      AND search_tsv @@ websearch_to_tsquery('english', $1)
+    LIMIT 40
+),
+vec_matches AS (
+    SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> $4::halfvec) AS rank_ix
+    FROM conversation_sessions
+    WHERE ($2::timestamptz IS NULL OR started_at >= $2)
+      AND ($3::timestamptz IS NULL OR ended_at <= $3)
+      AND embedding IS NOT NULL
+    LIMIT 40
+),
+rrf AS (
+    SELECT COALESCE(f.id, v.id) AS id,
+           COALESCE(1.0 / (60 + f.rank_ix), 0.0) + COALESCE(1.0 / (60 + v.rank_ix), 0.0) AS rrf_score
+    FROM fts_matches f FULL OUTER JOIN vec_matches v ON f.id = v.id
+)
+SELECT s.id, s.conversation_id, s.started_at, s.ended_at, s.summary, s.transcript, r.rrf_score
+FROM rrf r JOIN conversation_sessions s ON s.id = r.id
+ORDER BY r.rrf_score DESC LIMIT $5;
+`
+
+	var vecArg any
+	if queryVec != nil {
+		hv := pgvector.NewHalfVector(queryVec)
+		vecArg = hv.String()
+	}
+
+	rows, err := d.Pool.Query(ctx, rrfQueryAll, queryText, dateFrom, dateTo, vecArg, limit)
+	if err != nil {
+		return nil, fmt.Errorf("execute hybrid rrf query (all conversations): %w", err)
+	}
+	defer rows.Close()
+
+	var results []SessionSearchResult
+	for rows.Next() {
+		var res SessionSearchResult
+		if err := rows.Scan(
+			&res.ID,
+			&res.ConversationID,
+			&res.StartedAt,
+			&res.EndedAt,
+			&res.Summary,
+			&res.Transcript,
+			&res.RRFScore,
+		); err != nil {
+			return nil, fmt.Errorf("scan hybrid search row: %w", err)
+		}
+		results = append(results, res)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate hybrid search rows: %w", err)
+	}
+
+	return results, nil
+}
