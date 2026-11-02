@@ -18,6 +18,10 @@ import (
 // DefaultSessionPath is the default path to persist session credentials.
 const DefaultSessionPath = "/data/auth/session.json"
 
+// newLibGMClient is the constructor seam for the underlying libgm client.
+// Tests replace it to inject hermetic HTTP client settings (HARN-03) without forking libgm.
+var newLibGMClient = libgm.NewClient
+
 // MessageUpsertFunc is called whenever a message is received or processed.
 type MessageUpsertFunc func(ctx context.Context, msg *gmproto.Message, isFromMe bool, sentAt time.Time) error
 
@@ -66,7 +70,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		httpSettings = *opts.HTTPClientSettings
 	}
 
-	libgmCli := libgm.NewClient(authData, nil, opts.Logger, httpSettings)
+	libgmCli := newLibGMClient(authData, nil, opts.Logger, httpSettings)
 
 	c := &Client{
 		libgmClient:          libgmCli,

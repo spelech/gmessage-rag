@@ -201,36 +201,25 @@ func TestLoadAuthData_Corrupt(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse session json")
 }
 
-func TestPairingHandler_Start(t *testing.T) {
+// TestPairingHandler_Start_AlreadyLoggedIn verifies Start short-circuits with no
+// outbound network when the session is already paired (HARN-03).
+// The live QR registration path is covered by TestPairingHandler_Start_Live,
+// which is quarantined behind the `live` build tag.
+func TestPairingHandler_Start_AlreadyLoggedIn(t *testing.T) {
 	tempDir := t.TempDir()
 	sessionPath := filepath.Join(tempDir, "session.json")
 
+	// When client is logged in, Start marks isPaired = true and returns nil immediately.
 	client, err := NewClient(ClientOptions{
 		SessionPath: sessionPath,
 	})
 	require.NoError(t, err)
+	client.AuthData().Browser = &gmproto.Device{}
+	client.AuthData().SetCookies(map[string]string{"dummy": "cookie"})
+	assert.True(t, client.LibGM().IsLoggedIn())
 
 	handler := NewPairingHandler(client)
-
-	// 1. Start login initializes QR code and image
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	err = handler.Start(ctx)
+	err = handler.Start(context.Background())
 	assert.NoError(t, err)
-	assert.NotEmpty(t, handler.currentQR)
-	assert.NotEmpty(t, handler.qrImage)
-
-	// 2. When client is logged in, Start marks isPaired = true and returns nil immediately
-	client2, err := NewClient(ClientOptions{
-		SessionPath: filepath.Join(tempDir, "session2.json"),
-	})
-	require.NoError(t, err)
-	client2.AuthData().Browser = &gmproto.Device{}
-	client2.AuthData().SetCookies(map[string]string{"dummy": "cookie"})
-	assert.True(t, client2.LibGM().IsLoggedIn())
-
-	handler2 := NewPairingHandler(client2)
-	err = handler2.Start(context.Background())
-	assert.NoError(t, err)
-	assert.True(t, handler2.isPaired)
+	assert.True(t, handler.isPaired)
 }
