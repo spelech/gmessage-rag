@@ -464,7 +464,6 @@ implementation and proof now exist.
 | :--- | :--- | :--- | :--- |
 | `PIPE-03` | Not Started | `[x] Complete` | Living Dossier reconciler landed: `internal/pipeline/dossier.go`, `internal/pipeline/dossier_state.go`; proof `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` |
 | `PIPE-04` | Partial | `[x] Complete` | Contact enrichment consumer landed: `internal/pipeline/contacts.go`; proof `internal/pipeline/contacts_test.go::TestContactsSync_DossierEnrichment` |
-<<<<<<< HEAD
 
 ### 2026-11-02 Resolutions (Issue #81)
 
