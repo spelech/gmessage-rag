@@ -1,0 +1,35 @@
+name: Feature Request
+description: Propose a new feature, architecture enhancement, or protocol capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a new feature for `gmessages-rag`! Please ensure the request adheres to the project's engineering standards.
+  - type: input
+    id: requirement-id
+    attributes:
+      label: Requirement Traceability ID
+      description: If this feature traces to `docs/REQUIREMENTS.md` (e.g., `INT-01`, `HARN-01`), enter it here.
+      placeholder: e.g. INT-02, PIPE-07
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature Description
+      description: A clear and concise description of what you want to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: architectural-impact
+    attributes:
+      label: Architectural Impact & Concurrency Model
+      description: How does this interact with `libgm`, SQLite connection pooling, or the event debouncer? Any race safety or goroutine lifecycle considerations?
+    validations:
+      required: false
+  - type: textarea
+    id: testing-criteria
+    attributes:
+      label: Anti-Test-Theatre & Verification Plan
+      description: Detail concrete unit, integration, or simulation test boundaries.
+    validations:
+      required: true

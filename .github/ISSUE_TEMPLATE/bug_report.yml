@@ -1,0 +1,42 @@
+name: Bug Report
+description: File a bug report or regression
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide detailed reproduction steps, logs, and environment context.
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Bug Description
+      description: Describe what happened and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to Reproduce
+      description: Exact commands, environment variables, or API calls to reproduce the issue.
+      placeholder: |
+        1. Run `make pair`
+        2. Scan QR / Gaia emoji
+        3. Observe error...
+    validations:
+      required: true
+  - type: textarea
+    id: logs-and-errors
+    attributes:
+      label: Relevant Logs & Stack Traces
+      description: Include server logs, panic traces, or command output.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Environment Info
+      description: OS version, Docker engine version, Go version (`go version`).
+      placeholder: e.g. Linux Ubuntu 24.04, Docker 27.2, Go 1.25
+    validations:
+      required: false
