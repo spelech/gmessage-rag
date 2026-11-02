@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Living Dossier State Reconciliation Engine (`PIPE-03`, #78)**: Injectable OpenAI-compatible reconciler (`internal/pipeline/dossier.go`, `internal/pipeline/dossier_state.go`) that folds new sessions into the current dossier, anchors relative dates against session timestamps, applies chronological overrides, transitions past events, persists versioned state plus audit history, and exports Markdown under `DOSSIER_DIR`.
+- **Google Contacts Dossier Enrichment (`PIPE-04`, #78)**: `internal/pipeline/contacts.go` merges the `ListContacts` roster (names, avatars, nicknames, number labels) into the reconciled dossier state and Markdown; the daemon debouncer now runs reconciliation after sessionization.
+
 ## [1.0.0-rc2] - 2026-11-02
 
 ### Added
