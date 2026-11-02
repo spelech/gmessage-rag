@@ -31,62 +31,77 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 
 ## Requirements and Traceability Matrix
 
+> **Status vocabulary (added 2026-11-02, Issue #75 reconciliation):**
+> - `[x] Complete` — implemented and covered by a test that exists in the repository.
+> - `[~] Partial` — a component exists and is tested, but part of the described behavior is not wired or not implemented.
+> - `[ ] In Progress` — active work on a tracked issue.
+> - `[ ] Not Started` — the described behavior has no implementation in the repository.
+> - `[ ] Deferred` — intentionally postponed.
+
+> **Traceability audit notice:** A code audit on 2026-11-02 found the SRS had marked several
+> unbuilt behaviors as `[x] Complete`, referencing test paths that do not exist. Those rows are
+> corrected below. CI now enforces this (`scripts/check_traceability.sh`). Do not mark a row
+> `[x] Complete` unless its proof path exists and passes.
+
 | Requirement ID | Category | Status | Summary | Merged PR / Commit | Acceptance Criteria | Automated Test Proof |
 | :--- | :--- | :---: | :--- | :--- | :--- | :--- |
 | **`AUTH-01`** | `AUTH` | [x] Complete | **Session Token Persistence** | Commit `7456168` (PR #7) | Atomically writes `*libgm.AuthData` to `/data/auth/session.json` with `0600` permissions on `PairSuccessful` and `AuthTokenRefreshed`. | `internal/gm/pairing_test.go::TestSessionPersistence_Permissions` |
 | **`AUTH-02`** | `AUTH` | [x] Complete | **Dual Pairing Workflow** | Commit `7456168` (PR #7) | Supports terminal QR printing (`gmessages-rag pair`) and web UI QR rendering (`GET /pair`) with live refresh. | `internal/gm/pairing_test.go::TestPairingHandlers` |
 | **`AUTH-03`** | `AUTH` | [x] Complete | **Push Alerting & Remote Re-Auth** | Commit `7456168` (PR #35) | Dispatches Apprise/ntfy push notifications when token refresh fails or session is revoked, with direct link to `/pair` web UI for mobile re-pairing. | `internal/notify/client_test.go::TestPushAlerting_ReAuthNotification` |
-| **`AUTH-04`** | `AUTH` | [x] Complete | **Single-Device Gaia Pairing (No-QR Flow)** | PR #36, commit `fd1f7a3` | Supports Google Account (Gaia) pairing via `DoGaiaPairing`: displays matching emoji challenge on web UI (`GET /pair/gaia`) or sends via Apprise push for single-device pairing without camera QR scanning. | `internal/gm/gaia_pairing_test.go::TestGaiaPairing_Success` |
-| **`DB-01`** | `DB` | [x] Complete | **Schema Migration & Vector Init** | PR #4, #5, #7, #13, #15, #16 | Automatically applies embedded `001_init.sql` creating `conversations`, `conversation_sessions` (with `halfvec(1536)` HNSW), `messages`, `media_attachments`, and `contact_dossiers`. | `internal/db/db_test.go::TestDatabaseMigrations` |
+| **`AUTH-04`** | `AUTH` | [~] Partial | **Single-Device Gaia Pairing (No-QR Flow)** | PR #36, commit `fd1f7a3` | Supports Google Account (Gaia) pairing via `DoGaiaPairing`, displaying a matching emoji challenge. **Partial:** the pairing code and its callback/cancellation paths are implemented and tested hermetically; the end-to-end success path requires the gated live smoke test (`HARN-04`). | `internal/gm/gaia_test.go::TestGaiaPairing_CallbackInvocation` |
+| **`DB-01`** | `DB` | [x] Complete | **Schema Migration & Vector Init** | PR #4, #5, #7, #13, #15, #16 | Automatically applies embedded `001_init.sql` creating `conversations`, `conversation_sessions` (with `halfvec(1536)` HNSW), `messages`, `media_attachments`, and `contact_dossiers`. | `internal/db/db_test.go::TestGetMigrationScripts` |
 | **`DB-02`** | `DB` | [x] Complete | **Message & Reaction Ingestion** | PR #4, #5, #7, #13, #15, #16 | Normalizes microsecond/millisecond timestamps to UTC, resolves incoming/outgoing direction, and idempotently upserts messages and emoji reactions. | `internal/db/messages_test.go::TestUpsertMessages_Idempotent` |
 | **`DB-03`** | `DB` | [x] Complete | **2-Hour Session Windowing** | PR #4, #5, #7, #13, #15, #16 | Groups messages separated by $\le 2\text{ hours}$ into `conversation_sessions` with absolute calendar headers and inline media OCR annotations. | `internal/db/sessions_test.go::TestSessionGrouping_2HourGap` |
 | **`DB-04`** | `DB` | [x] Complete | **Hybrid RRF Search Query** | PR #4, #5, #7, #13, #15, #16 | Combines full-text BM25 (`ts_rank_cd`) and vector cosine similarity (`<=>`) using Reciprocal Rank Fusion ($k=60$) over session transcripts. | `internal/db/sessions_test.go::TestSearchSessionsHybrid_RRF` |
 | **`DB-05`** | `DB` | [x] Complete | **Living Dossier State & Audit History** | PR #4, #5, #7, #13, #15, #16 | Upserts current structured state in `contact_dossiers` and snapshots prior state to `contact_dossier_history` for rollback safety. | `internal/db/dossiers_test.go::TestDossierVersionAuditHistory` |
-| **`DB-06`** | `DB` | [x] Complete | **Inferred Read/Delivery Heuristics** | PR #37, commit `0c88b51` | When enabled (`ENABLE_READ_RECEIPT_HEURISTIC=true`), infers prior outgoing messages up to incoming reply timestamp are delivered and acknowledged for SMS/iPhone contacts lacking native receipts. | `internal/db/messages_test.go::TestUpsertMessages_ReadReceiptHeuristic` |
-| **`DB-07`** | `DB` | [ ] In Progress | **Postgres-Backed CI Integration Tests** | Issue #72 | CI provisions a `pgvector/pgvector:pg17` service with `DATABASE_URL`, so `internal/db`, `internal/pipeline`, and `internal/gm` integration tests execute on every push. Enforces a ≥ 75% coverage floor. | `.github/workflows/ci.yml` (Stage 2 service block) |
+| **`DB-06`** | `DB` | [x] Complete | **Inferred Read/Delivery Heuristics** | PR #37, commit `0c88b51` | When enabled (`ENABLE_READ_RECEIPT_HEURISTIC=true`), infers prior outgoing messages up to incoming reply timestamp are delivered and acknowledged for SMS/iPhone contacts lacking native receipts. | `internal/db/receipts_test.go::TestInferDeliveryReceipts` |
+| **`DB-07`** | `DB` | [x] Complete | **Postgres-Backed CI Integration Tests** | Issue #72, PR #73, commit `2a37861` | CI provisions a `pgvector/pgvector:pg17` service with `DATABASE_URL`, so `internal/db`, `internal/pipeline`, and `internal/gm` integration tests execute on every push. Enforces a ≥ 75% coverage floor. | `gate:.github/workflows/ci.yml` |
 | **`GUARD-01`** | `GUARD` | [x] Complete | **Prompt Injection XML Boundary** | Commit `57dad5e` | All raw message texts, transcripts, and OCR text returned by MCP tools are wrapped in `<untrusted_conversation_data>` tags. | `internal/mcpserver/guardrails_test.go::TestWrapUntrustedData_Escaping` |
 | **`GUARD-02`** | `GUARD` | [x] Complete | **Send-Message Restriction** | Commit `57dad5e` | Deliberately omits outbound `send_message` MCP tool unless `ENABLE_MCP_SEND_MESSAGE=true` is explicitly configured. | `internal/mcpserver/tools_test.go::TestSendMessageTool_RegistrationGuard` |
-| **`PIPE-01`** | `PIPE` | [x] Complete | **Vision OCR Sidecar** | PR #6, #12 | Extracts verbatim OCR text and 1-2 sentence visual description for image attachments in tracked conversations via OpenAI-compatible vision model. | `internal/pipeline/vision_test.go::TestVisionOCR_Extraction` |
-| **`PIPE-02`** | `PIPE` | [x] Complete | **Per-Conversation Idle Debouncer** | PR #6, #12 | Maintains thread-safe timers per tracked conversation; triggers pipeline run after 30 minutes of messaging silence. | `internal/pipeline/debouncer_test.go::TestDebouncer_ResetOnNewMessage` |
-| **`PIPE-03`** | `PIPE` | [x] Complete | **LLM State Reconciliation Engine** | PR #34, commit `1141504` | Reconciles new sessions against current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown to disk. | `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` |
-| **`PIPE-04`** | `PIPE` | [x] Complete | **Google Contacts Enrichment** | PR #47, commit `836834b` | Pulls `ListContacts` / `ListTopContacts` to enrich dossiers with contact names, avatars, phone labels, and relationship metadata. | `internal/pipeline/contacts_test.go::TestContactsSync_DossierEnrichment` |
-| **`PIPE-05`** | `PIPE` | [x] Complete | **Action-Aware Smart Debouncing** | PR #40, commit `09c2323` | Listens to participant typing events (`UpdateEvents_TypingEvent`) and outbound drafts to reset or pause the 30-minute idle window dynamically. | `internal/pipeline/debouncer_test.go::TestDebouncer_TypingIndicatorReset` |
-| **`PIPE-06`** | `PIPE` | [x] Complete | **Standardized Batch ETL Ingestion** | PR #48, commit `badf3e9` | Staged pipeline for long conversation backfills: chunked cursor fetching, normalized transformation, and batched pgvector staging with bounded memory usage. | `internal/pipeline/etl_test.go::TestETLPipeline_BatchProcessing` |
-| **`OBS-01`** | `OBS` | [x] Complete | **Prometheus Metrics & Health Probes** | PR #41, commit `151d981` | Exposes standard Prometheus metrics (`/metrics`) and health check probes (`/healthz`) with database pool reachability and WebSocket listener status. | `internal/obs/metrics_test.go::TestMetricsRegistrationAndScrape` |
+| **`PIPE-01`** | `PIPE` | [ ] Not Started | **Vision OCR Sidecar** | — | Extracts verbatim OCR text and a 1-2 sentence visual description for image attachments via an OpenAI-compatible vision model. **Not implemented:** no vision client exists; `VISION_MODEL`/`LLM_BASE_URL` are unused. | None |
+| **`PIPE-02`** | `PIPE` | [~] Partial | **Per-Conversation Idle Debouncer** | PR #6, #12 | Maintains thread-safe timers per tracked conversation; triggers a pipeline run after 30 minutes of silence. **Partial:** the debouncer and its timers are implemented and tested, but the daemon's `OnFlush` callback only logs (no pipeline run). | `internal/pipeline/debouncer_test.go::TestDebouncer_ResetOnNewMessage` |
+| **`PIPE-03`** | `PIPE` | [ ] Not Started | **LLM State Reconciliation Engine** | — | Reconciles new sessions against the current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown. **Not implemented:** no LLM client or dossier generator exists; `DOSSIER_MODEL` is unused. | None |
+| **`PIPE-04`** | `PIPE` | [~] Partial | **Google Contacts Enrichment** | PR #47, commit `836834b` | Pulls `ListContacts` / `ListTopContacts` and enriches dossiers with contact names, avatars, and labels. **Partial:** fetching/parsing exists and is tested; no dossier enrichment consumes it. | `internal/gm/contacts_test.go` (fetch/parse only) |
+| **`PIPE-05`** | `PIPE` | [~] Partial | **Action-Aware Smart Debouncing** | PR #40, commit `09c2323` | Resets or pauses the idle window on typing events and outbound drafts. **Partial:** the debouncer exposes `RecordTypingType`, but the daemon/gm client never forwards typing events to it. | `internal/pipeline/debouncer_test.go::TestDebouncer_TypingIndicatorReset` |
+| **`PIPE-06`** | `PIPE` | [~] Partial | **Standardized Batch ETL Ingestion** | PR #48, commit `badf3e9` | Chunked cursor fetching and normalized transformation for backfills. **Partial:** message fetch/upsert ETL is implemented and tested; no embedding/vector staging occurs. | `internal/pipeline/etl_test.go::TestETLPipeline_BatchProcessing` |
+| **`OBS-01`** | `OBS` | [x] Complete | **Prometheus Metrics & Health Probes** | PR #41, commit `151d981` | Exposes standard Prometheus metrics (`/metrics`) and health check probes (`/healthz`) with database pool reachability and WebSocket listener status. | `internal/obs/metrics_test.go::TestMetrics_HTTPEndpointScrape` |
 | **`NOTIF-01`** | `NOTIF` | [x] Complete | **Apprise & ntfy Push Alerting** | PR #35, commit `796debd` | Dispatches high-priority push notifications via Apprise and ntfy endpoints with embedded action links for mobile re-auth and connection events. | `internal/notify/client_test.go::TestPushAlerting_ReAuthNotification` |
 | **`NOTIF-02`** | `NOTIF` | [x] Complete | **Debounced Connection Watchdog** | PR #35, commit `796debd` | Monitors `PhoneNotResponding` and suppresses alerts during configurable grace periods (default 15m) to eliminate transient cell drop fatigue. | `internal/notify/watchdog_test.go::TestWatchdog_PhoneDisconnect_GracePeriodTrigger` |
-| **`SEC-01`** | `SEC` | [x] Complete | **Content-Addressed Media Decryption** | PR #34, commit `1141504` | Decrypts RCS attachments, computes SHA-256 hash, and stores files at `/data/media/<h1h2>/<h3h4>/<hash>.<ext>` with duplicate avoidance. | `internal/gm/media_test.go::TestMediaDownload_SHA256Pathing` |
+| **`SEC-01`** | `SEC` | [~] Partial | **Content-Addressed Media Decryption** | PR #34, commit `1141504` | Decrypts RCS attachments, computes a SHA-256 hash, and stores files at `/data/media/<h1h2>/<h3h4>/<hash>.<ext>` with duplicate avoidance. **Partial:** decrypt/hash/store is implemented and tested, but nothing in ingestion calls it (no non-test caller of `UpsertMediaAttachment`). | `internal/gm/media_test.go::TestMediaDownload_SHA256Pathing` |
 | **`SEC-02`** | `SEC` | [x] Complete | **Full-Resolution Media Retrieval** | PR #38, commit `8d5b7e4` | When opted-in (`PULL_FULL_SIZE_MEDIA=true`), requests full-resolution image assets via `GetFullSizeImage` before running Vision OCR (default: progressive thumbnail). | `internal/gm/media_test.go::TestMediaDownload_FullSizeOption` |
-| **`SEC-03`** | `SEC` | [x] Complete | **CI Vulnerability Scanning & Race Checks** | Issue #30, commit `30b0cb6` | Enforces `govulncheck` static call-graph vulnerability scanning and `go test -race` concurrency validation in CI and Makefile targets. | GitHub Actions CI & `Makefile::vulncheck` |
-| **`HARN-01`** | `HARN` | [x] Complete | **Protobuf Disturbance Simulation Fixture** | Issue #29, commit `ecac8e2` | In-memory Google Messages WebSocket simulation server injecting synthetic protobuf frames (disconnects, media bursts, typing events, payload corruption) for deterministic CI verification. | `internal/gm/testing/mock_server_test.go::TestMockGMServer_DisturbanceRecovery` |
-| **`HARN-02`** | `HARN` | [ ] In Progress | **In-Process libgm Protocol Emulator** | Issue #62 | Hermetic, in-process implementation of the Google Messages RPC surface, wired through the `exhttp.ClientSettings.TransportOverride` injection point (no libgm fork). Covers the pairing handshake (`RegisterPhoneRelay`, `/web/config`) plus long-poll `PairEvent` injection so a full pairing completes and persists. | `internal/gm/emulator_e2e_test.go::TestEmulator_PairingCompletesPairDone` |
+| **`SEC-03`** | `SEC` | [x] Complete | **CI Vulnerability Scanning & Race Checks** | Issue #30, commit `30b0cb6` | Enforces `govulncheck` static call-graph vulnerability scanning and `go test -race` concurrency validation in CI and Makefile targets. | `gate:Makefile`, `gate:.github/workflows/ci.yml` |
+| **`HARN-01`** | `HARN` | [~] Partial | **Protobuf Disturbance Simulation Fixture** | Issue #29, commit `ecac8e2` | In-memory Google Messages simulation server injecting synthetic protobuf frames (disconnects, media bursts, typing events, payload corruption). **Partial:** the fixture and its tests exist, but no daemon or `libgm` code consumes it (no non-test caller of `NewMockGMServer`), so it verifies itself only. | `internal/gm/testing/mock_server_test.go::TestMockGMServer_DisturbanceRecovery` |
+| **`HARN-02`** | `HARN` | [~] Partial | **In-Process libgm Protocol Emulator** | Issue #62, PR #69, commit `132d12e` | Hermetic, in-process implementation of the Google Messages RPC surface, wired through `exhttp.ClientSettings.TransportOverride` (no libgm fork). **Partial:** the pairing handshake (`RegisterPhoneRelay`, `/web/config`) and long-poll `PairEvent` are covered; `FetchMessages`, `ListContacts`, `SendMessage`, and media are not. | `internal/gm/emulator_e2e_test.go::TestEmulator_PairingCompletesPairDone` |
 | **`HARN-03`** | `HARN` | [x] Complete | **Hermetic Test Suite & Live Network Quarantine** | Issue #63 | Default `go test ./...` runs fully offline: `internal/gm` installs a deny-all HTTP transport via the `libgm` constructor seam. Live-network tests are quarantined behind the `live` build tag and `LIVE_GM_TEST=1`. | `internal/gm/hermetic_test.go::TestHermeticGuard_BlocksOutboundRegistration` |
 | **`HARN-04`** | `HARN` | [ ] In Progress | **Gated Real-Device Live Smoke Test** | Issue #65 | One opt-in end-to-end test (`//go:build live`) that pairs via Gaia emoji, asserts `0600` session persistence, connects, waits for one real inbound message, and verifies the persistence handoff. Never runs in CI. | `internal/gm/live_smoke_test.go::TestLiveSmoke_EndToEnd` |
-| **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/ui_test.go::TestUI_DashboardRendering` |
-| **`UI-02`** | `UI` | [x] Complete | **Interactive Test Bench (Context-Cortex style)** | PR #45, commit `91e8fcc` | Developer harness in web UI to execute ad-hoc Hybrid RRF queries, test MCP tools with live responses, inspect XML boundaries, and review dossier history diffs. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
+| **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/dashboard_test.go::TestDashboardUI_AssetServing`, `internal/web/api.go` handlers |
+| **`UI-02`** | `UI` | [~] Partial | **Interactive Test Bench (Context-Cortex style)** | PR #45, commit `91e8fcc` | Developer harness in the web UI to run ad-hoc Hybrid RRF queries, test MCP tools, inspect XML boundaries, and review dossier history. **Partial:** the harness and its handlers are implemented and tested, but MCP tool calls return stub text and RRF runs against unpopulated sessions. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
 | **`UI-03`** | `UI` | [x] Complete | **Parameter & Pipeline Tuner** | PR #44, commit `2407ed6` | Web interface to view and hot-tune pipeline parameters (debouncer idle duration, RRF $k$ factor, OCR model endpoint, backfill window). | `internal/config/tuner_test.go::TestRuntimeTuner_ConcurrentUpdatesAndNotification` |
-| **`UI-05`** | `UI` | [x] Complete | **Embedded Test Bench & Tuner in Dashboard** | PR #49 | Integrates UI-02 (Diagnostic Test Bench) and UI-03 (Runtime Tuner) into tabbed navigation in index.html with interactive MCP tools, hybrid RRF search, guardrail sanitizer, and hot-tuning REST endpoints. | `internal/web/dashboard_test.go::TestDashboardUI_AssetServing` |
-| **`UI-06`** | `UI` | [x] Complete | **VitePress Google Brand Theme** | Issue #71 | Custom VitePress theme (`docs/.vitepress/theme`) applies the Google four-color palette (blue #4285F4, green #34A853, yellow #FBBC05, red #EA4335) to brand/tip/warning/danger tokens with light and dark variants, a four-color hero wordmark, and a palette-aligned Mermaid theme. | `npm run docs:build` and screenshots `assets/screenshots/docs_*.png` |
-| **`CLEANUP-01`**| `CLEANUP` | [x] Complete | **Dead Code & Error Handling Hardening** | Issue #42, commit `c279ebd` | Purged redundant models, eliminated ignored errors, guaranteed strict error propagation on file operations, and added `goleak` goroutine lifecycle validation. | Full package test suite & `go test -race ./...` |
+| **`UI-05`** | `UI` | [~] Partial | **Embedded Test Bench & Tuner in Dashboard** | PR #49 | Integrates UI-02 and UI-03 into tabbed navigation with interactive MCP tools, hybrid RRF search, guardrail sanitizer, and hot-tuning REST endpoints. **Partial:** panels and tuner work; embedded MCP tool calls resolve to stubs. | `internal/web/dashboard_test.go::TestDashboardUI_AssetServing` |
+| **`UI-06`** | `UI` | [x] Complete | **VitePress Google Brand Theme** | Issue #71, PR #74, commit `f0458c0` | Custom VitePress theme (`docs/.vitepress/theme`) applies the Google four-color palette (blue #4285F4, green #34A853, yellow #FBBC05, red #EA4335) to brand/tip/warning/danger tokens with light and dark variants, a four-color hero wordmark, and a palette-aligned Mermaid theme. | `docs/.vitepress/theme/custom.css`, screenshots `assets/screenshots/docs_home_light.png` |
+| **`CLEANUP-01`**| `CLEANUP` | [x] Complete | **Dead Code & Error Handling Hardening** | Issue #42, commit `c279ebd` | Eliminated ignored errors, enforced strict error propagation on file operations, and added `goleak` goroutine lifecycle validation. | `gate:Makefile` (`make test`), `go test -race ./...` |
 | **`DOCKER-01`** | `DOCKER` | [x] Complete | **Hardened Non-Root Container & PUID/PGID** | Issue #42, commit `c279ebd` | Hardened multi-stage non-root container with `PUID`/`PGID` permission handling, `.env.example` alignment, and immutable volume mounts. | `Dockerfile`, `docker-compose.yml` |
-| **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/serve_test.go::TestBuildServeMux_Wiring` |
-| **`REFACTOR-01`**| `REFACTOR`| [x] Complete | **Comprehensive Architecture Purge** | Issue #42, commit `c279ebd` | Holistic code smell elimination, package clean boundaries, and zero-theatre controls verification across all daemon subsystems. | Full repository test suite |
+| **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` |
+| **`REFACTOR-01`**| `REFACTOR`| [x] Complete | **Comprehensive Architecture Purge** | Issue #42, commit `c279ebd` | Holistic code smell elimination, clean package boundaries, and verification across all daemon subsystems. | `gate:Makefile` (`make lint`, `make test`) |
 | **`MCP-00`** | `MCP` | [x] Complete | **2026-07-28 Spec & Ping Support** | Commit `57dad5e` | Strictly adheres to the 2026-07-28 MCP specification: returns `Mcp-Protocol-Version: 2026-07-28` header, handles `ping` JSON-RPC method returning empty object `{}`, supports `initialize`/`notifications/initialized`, and runs over Streamable HTTP (`POST /mcp`), SSE (`GET /sse`), and stdio. | `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
-| **`MCP-01`** | `MCP` | [x] Complete | **`list_conversations` Tool** | Commit `57dad5e` | Lists conversations with IDs, contact names, participant identifiers, tracked status, and last activity timestamp. | `internal/mcpserver/tools_test.go::TestTool_ListConversations` |
-| **`MCP-02`** | `MCP` | [x] Complete | **`get_contact_dossier` Tool** | Commit `57dad5e` | Returns current Markdown dossier, structured JSON state, plus live tail of unindexed messages sent after last dossier reconciliation. | `internal/mcpserver/tools_test.go::TestTool_GetContactDossier` |
-| **`MCP-03`** | `MCP` | [x] Complete | **`search_conversation_history` Tool** | Commit `57dad5e` | Executes Hybrid RRF query across sessions with optional date bounds and returns formatted transcripts. | `internal/mcpserver/tools_test.go::TestTool_SearchConversationHistory` |
-| **`MCP-04`** | `MCP` | [x] Complete | **`get_messages_around_time` Tool** | Commit `57dad5e` | Pulls verbatim message context and media OCR annotations within $\pm \text{window\_minutes}$ of a target timestamp. | `internal/mcpserver/tools_test.go::TestTool_GetMessagesAroundTime` |
-| **`MCP-05`** | `MCP` | [x] Complete | **`search_shared_media` Tool** | Commit `57dad5e` | Searches media attachments by OCR text and visual descriptions. | `internal/mcpserver/tools_test.go::TestTool_SearchSharedMedia` |
-| **`MCP-06`** | `MCP` | [x] Complete | **`manage_tracked_contact` Tool** | Commit `57dad5e` | Enables/disables thread tracking, initiates historical pagination backfill, or forces immediate dossier refresh. | `internal/mcpserver/tools_test.go::TestTool_ManageTrackedContact` |
-| **`TRANS-01`** | `TRANS` | [x] Complete | **Health Check Probe** | Commit `57dad5e` / PR #41, commit `151d981` | Exposes `/health` and `/healthz` returning HTTP 200 with database connectivity status and version JSON. | `internal/web/server_test.go::TestHealthEndpoint_ReturnsHealthy` |
-| **`TRANS-02`** | `TRANS` | [x] Complete | **Streamable MCP & SSE Endpoints** | Commit `57dad5e` | Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090. | `internal/web/server_test.go::TestMCPEndpoints_HTTPAndSSE` |
-| **`TRANS-03`** | `TRANS` | [x] Complete | **Briefing API & Outbound Webhook** | PR #6, #12 / Commit `7456168` | Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches POST to `WEBHOOK_URL` when dossiers update. | `internal/web/webhook_test.go::TestWebhookDispatch_OnDossierUpdate` |
+| **`MCP-01`** | `MCP` | [~] Partial | **`list_conversations` Tool** | Commit `57dad5e` | Lists conversations with IDs, contact names, participant identifiers, tracked status, and last activity. **Partial:** the tool has a schema and is registered, but its handler is a stub returning placeholder text; no DB access. | `internal/mcpserver/tools_test.go::TestTool_ListConversations` (registration only) |
+| **`MCP-02`** | `MCP` | [~] Partial | **`get_contact_dossier` Tool** | Commit `57dad5e` | Returns the current Markdown dossier, structured JSON state, and a live tail of unindexed messages. **Partial:** stub handler; no dossier or DB access. | `internal/mcpserver/tools_test.go::TestTool_GetContactDossier` (registration only) |
+| **`MCP-03`** | `MCP` | [~] Partial | **`search_conversation_history` Tool** | Commit `57dad5e` | Executes a Hybrid RRF query across sessions with optional date bounds and returns formatted transcripts. **Partial:** stub handler; no RRF query. | `internal/mcpserver/tools_test.go::TestTool_SearchConversationHistory` (registration only) |
+| **`MCP-04`** | `MCP` | [~] Partial | **`get_messages_around_time` Tool** | Commit `57dad5e` | Pulls verbatim message context and media OCR annotations within a time window. **Partial:** stub handler; no DB access. | `internal/mcpserver/tools_test.go::TestTool_GetMessagesAroundTime` (registration only) |
+| **`MCP-05`** | `MCP` | [~] Partial | **`search_shared_media` Tool** | Commit `57dad5e` | Searches media attachments by OCR text and visual descriptions. **Partial:** stub handler; no DB access and no OCR data exists. | `internal/mcpserver/tools_test.go::TestTool_SearchSharedMedia` (registration only) |
+| **`MCP-06`** | `MCP` | [~] Partial | **`manage_tracked_contact` Tool** | Commit `57dad5e` | Enables or disables thread tracking, initiates backfill, or forces a dossier refresh. **Partial:** stub handler; no DB access. | `internal/mcpserver/tools_test.go::TestTool_ManageTrackedContact` (registration only) |
+| **`TRANS-01`** | `TRANS` | [x] Complete | **Health Check Probe** | Commit `57dad5e` / PR #41, commit `151d981` | Exposes `/health` and `/healthz` returning HTTP 200 with database connectivity status and version JSON. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/obs/health_test.go::TestHealthHandler_Healthy` |
+| **`TRANS-02`** | `TRANS` | [x] Complete | **Streamable MCP & SSE Endpoints** | Commit `57dad5e` | Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
+| **`TRANS-03`** | `TRANS` | [ ] Not Started | **Briefing API & Outbound Webhook** | — | Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches a POST to `WEBHOOK_URL` when dossiers update. **Not implemented:** no briefing route exists; `WEBHOOK_URL` is read from config but never used. | None |
 | **`TRANS-04`** | `TRANS` | [x] Complete | **Configurable Diagnostics Alerts** | PR #35, commit `796debd` | Monitors phone responsiveness (`PhoneNotResponding`), but alerts only if configured (`NOTIFY_ON_PHONE_DISCONNECT=true`) and debounced by $N$ minutes. | `internal/notify/watchdog_test.go::TestWatchdog_PhoneDisconnect_GracePeriodTrigger` |
 | **`INT-01`** | `INT` | [ ] Deferred | **Home Assistant MQTT Bridge** | Held (Issue #32) | Supplements outbound webhooks with an optional MQTT client bridge. **Note:** Deferred/held in favor of universal Apprise/ntfy push alerting and Prometheus metrics. | `internal/mqtt` baseline |
 
 ---
 
 ## Detailed Requirement Definitions
+
+> **The traceability matrix above is authoritative.** Where a definition below carries an outdated
+> `[x] Complete` status, the matrix and the `2026-11-02 Traceability Reconciliation` appendix govern.
 
 ### `AUTH-01`: Session Token Persistence
 - **Category**: `AUTH` (`PositiveFeature`)
@@ -114,7 +129,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
   2. Google Messages generates a pairing emoji challenge (e.g. 🐶 / 🚀 / ☕).
   3. The daemon renders this emoji challenge on `EXTERNAL_WEB_URL/pair/gaia` or pushes the emoji name directly to the user's phone via an Apprise/ntfy push notification.
   4. The user taps the notification on their phone, opens Google Messages, and simply taps the matching emoji on their screen to grant instant pairing approval without using a camera.
-- **Verification**: Unit tests in `internal/gm/gaia_pairing_test.go` asserting emoji callback invocation, Ukey2 handshake processing, and `PairSuccessful` emission upon challenge confirmation.
+- **Verification**: Hermetic unit tests in `internal/gm/gaia_test.go` asserting emoji callback invocation and context cancellation. **The end-to-end success path (`PairSuccessful` after challenge confirmation) is only exercised by the gated live smoke test (`HARN-04`).**
 
 ### `DB-01`: Schema Migration & Vector Init
 - **Category**: `DB` (`PositiveFeature`)
@@ -329,7 +344,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Category**: `DAEMON` (`PositiveFeature`)
 - **Status**: `[x] Complete` (Issue #42, commit `c279ebd`)
 - **Description**: CLI commands (`cmd/gmessages-rag serve` and `pair`) wire all core subsystems into a unified `http.ServeMux` (`/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, `/healthz`), connect the connection watchdog, register action-aware debouncers, and manage graceful shutdown across `SIGINT`/`SIGTERM`.
-- **Verification**: Integration test in `cmd/gmessages-rag/serve_test.go` asserting route dispatch and orderly subsystem shutdown.
+- **Verification**: Integration test in `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` asserting route dispatch; graceful shutdown is exercised by the daemon's signal handling.
 
 ### `REFACTOR-01`: Comprehensive Architecture Purge
 - **Category**: `REFACTOR` (`NonFunctional`)
@@ -387,19 +402,19 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Category**: `TRANS` (`PositiveFeature`)
 - **Status**: `[x] Complete` (Commit `57dad5e` / PR #41, commit `151d981`)
 - **Description**: Exposes `/health` returning HTTP 200 with database connectivity status and version JSON.
-- **Verification**: Unit test in `internal/web/server_test.go::TestHealthEndpoint_ReturnsHealthy`.
+- **Verification**: `internal/obs/health_test.go::TestHealthHandler_Healthy` and route wiring in `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`.
 
 ### `TRANS-02`: Streamable MCP & SSE Endpoints
 - **Category**: `TRANS` (`PositiveFeature`)
 - **Status**: `[x] Complete` (Commit `57dad5e`)
 - **Description**: Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090.
-- **Verification**: Unit test in `internal/web/server_test.go::TestMCPEndpoints_HTTPAndSSE`.
+- **Verification**: `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` and route wiring in `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`.
 
 ### `TRANS-03`: Briefing API & Outbound Webhook
 - **Category**: `TRANS` (`PositiveFeature`)
-- **Status**: `[x] Complete` (PR #6, #12 / Commit `7456168`)
-- **Description**: Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches POST to `WEBHOOK_URL` when dossiers update.
-- **Verification**: Unit test in `internal/web/webhook_test.go::TestWebhookDispatch_OnDossierUpdate`.
+- **Status**: `[ ] Not Started`
+- **Description**: Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches POST to `WEBHOOK_URL` when dossiers update. **Not implemented:** no briefing route exists and `WEBHOOK_URL` is never dispatched.
+- **Verification**: None.
 
 ### `TRANS-04`: Configurable Diagnostics & Apprise/ntfy Alerts
 - **Category**: `TRANS` (`PositiveFeature`)
@@ -413,3 +428,29 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Description**: Supplements outbound HTTP webhooks with an optional MQTT client bridge supporting Home Assistant MQTT Discovery. Publishes sensor states (connection status, unread message count) and subscribes to a command topic allowing Home Assistant automations to send outgoing SMS/RCS messages.
 - **Note**: Held / deferred in favor of universal Apprise/ntfy push alerting and Prometheus metrics.
 - **Verification**: In-memory MQTT client tests verifying discovery payload publication and inbound message dispatch.
+
+---
+
+## 2026-11-02 Traceability Reconciliation
+
+A code audit found the SRS had marked several unbuilt behaviors `[x] Complete`, referencing test
+paths that did not exist. The following rows were corrected in the matrix. Every `[x] Complete`
+row must now point at a test that exists; CI enforces this via `scripts/check_traceability.sh`.
+
+| Requirement | Was | Now | Reason |
+| :--- | :--- | :--- | :--- |
+| `PIPE-01` | Complete | Not Started | No vision/OCR client exists; `VISION_MODEL` unused |
+| `PIPE-02` | Complete | Partial | Debouncer tested, but daemon `OnFlush` only logs |
+| `PIPE-03` | Complete | Not Started | No LLM/dossier engine; `DOSSIER_MODEL` unused |
+| `PIPE-04` | Complete | Partial | Contacts fetch/parse real; no dossier enrichment |
+| `PIPE-05` | Complete | Partial | `RecordTypingType` exists but is never called |
+| `PIPE-06` | Complete | Partial | Message ETL real; no embedding/vector staging |
+| `SEC-01` | Complete | Partial | Decrypt/hash/store tested; no ingestion caller |
+| `HARN-01` | Complete | Partial | Mock server tests itself; no daemon/`libgm` consumer |
+| `AUTH-04` | Complete | Partial | Success path needs live smoke; proof path did not exist |
+| `MCP-01`..`MCP-06` | Complete | Partial | Tools registered, but every handler is a stub |
+| `TRANS-03` | Complete | Not Started | No briefing route and no webhook dispatch |
+| `UI-02`,`UI-05` | Complete | Partial | Panels work; embedded MCP calls resolve to stubs |
+| `UI-01`,`DAEMON-01`,`TRANS-01`,`TRANS-02` | Complete | Complete | Status correct; proof paths corrected to existing tests |
+| `DB-07` | In Progress | Complete | CI Postgres service merged (PR #73) |
+| `HARN-02` | In Progress | Partial | Pairing emulator merged; other RPCs pending |
