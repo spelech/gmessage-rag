@@ -1,7 +1,7 @@
 # Binaries and build artifacts
 /bin/
 /out/
-gmessages-rag
+/gmessages-rag
 
 # Local data volumes & session state (CRITICAL SEC: never commit session tokens or decrypted media)
 /data/auth/
