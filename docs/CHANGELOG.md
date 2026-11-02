@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented `internal/mcpserver` adhering strictly to the `2026-07-28` Model Context Protocol (MCP) specification with native `ping` JSON-RPC method, `Mcp-Protocol-Version: 2026-07-28` response header, Streamable HTTP (`POST /mcp`), Server-Sent Events (`GET /sse`), stdio transport, and prompt injection XML boundary guardrails (`GUARD-01`, `GUARD-02`, `MCP-00`).
 - Implemented `internal/gm` (`libgm` client wrapper, dual QR terminal & Web pairing, microsecond/millisecond timestamp magnitude normalization, direction resolution, and atomic POSIX 0600 session token persistence resolving Issue #7).
 - Implemented `internal/db/sessions.go` (2-hour session window grouping, calendar-anchored transcript rendering, and Hybrid RRF Reciprocal Rank Fusion search query CTE resolving Issue #5).
+- Implemented `internal/db/messages.go`, `conversations.go`, `types.go`, and `messages_test.go` (488 LOC) with idempotent raw message and conversation CRUD, batch boundaries, and atomic reaction deduplication (resolving Issue #4).
+- Implemented `internal/db/dossiers.go` and `dossiers_test.go` (326 LOC) with Living Dossier persistence, semantic diffing, audit history snapshotting, and timeline live tails (resolving Issue #6).
+- Documented single-device Google Account (Gaia) emoji challenge pairing flow (`AUTH-04`) eliminating camera QR scan requirements on single-screen devices.
+- Created `docs/NOTES.md` documenting Go architectural patterns, SOLID translations, concurrency state models, language selection decision matrix, and `golang-service-daemon` blueprint.
 - Specified advanced capabilities across requirements and architecture: Apprise/ntfy mobile re-auth alerting (`AUTH-03`), inferred read receipt heuristics for SMS/iPhone contacts (`DB-06`), opt-in full-resolution media retrieval (`SEC-02`), Google Contacts profile enrichment (`PIPE-04`), action-aware smart debouncing on typing events (`PIPE-05`), standardized 3-stage batch ETL ingestion (`PIPE-06`), and debounced phone connectivity monitoring (`TRANS-04`).
 
 
