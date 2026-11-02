@@ -43,6 +43,12 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.PhoneDisconnectGraceMinutes != 15 {
 		t.Errorf("expected default PhoneDisconnectGraceMinutes 15, got %d", cfg.PhoneDisconnectGraceMinutes)
 	}
+	if cfg.PullFullSizeMedia {
+		t.Errorf("expected default PullFullSizeMedia false, got true")
+	}
+	if cfg.MediaDir != "/data/media" {
+		t.Errorf("expected default MediaDir '/data/media', got %s", cfg.MediaDir)
+	}
 }
 
 func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
@@ -55,6 +61,8 @@ func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
 	os.Setenv("EXTERNAL_WEB_URL", "https://gmessages.home.arpa")
 	os.Setenv("NOTIFY_ON_PHONE_DISCONNECT", "true")
 	os.Setenv("PHONE_DISCONNECT_GRACE_MINUTES", "20")
+	os.Setenv("PULL_FULL_SIZE_MEDIA", "true")
+	os.Setenv("MEDIA_DIR", "/custom/media")
 	defer os.Clearenv()
 
 	cfg, err := config.LoadConfig()
@@ -94,5 +102,11 @@ func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
 	}
 	if cfg.PhoneDisconnectGraceMinutes != 20 {
 		t.Errorf("expected PhoneDisconnectGraceMinutes 20, got %d", cfg.PhoneDisconnectGraceMinutes)
+	}
+	if !cfg.PullFullSizeMedia {
+		t.Errorf("expected PullFullSizeMedia true")
+	}
+	if cfg.MediaDir != "/custom/media" {
+		t.Errorf("expected MediaDir '/custom/media', got %s", cfg.MediaDir)
 	}
 }

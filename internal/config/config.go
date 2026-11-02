@@ -33,6 +33,8 @@ type Config struct {
 	ExternalWebURL              string
 	NotifyOnPhoneDisconnect     bool
 	PhoneDisconnectGraceMinutes int
+	PullFullSizeMedia           bool
+	MediaDir                    string
 }
 
 // LoadConfig reads configuration from environment variables with fallback defaults.
@@ -51,6 +53,8 @@ func LoadConfig() (*Config, error) {
 	enableSend := getEnvBool("ENABLE_MCP_SEND_MESSAGE", false)
 	notifyOnDisconnect := getEnvBool("NOTIFY_ON_PHONE_DISCONNECT", false)
 	phoneGraceMinutes := getEnvInt("PHONE_DISCONNECT_GRACE_MINUTES", 15)
+	pullFullSizeMedia := getEnvBool("PULL_FULL_SIZE_MEDIA", false)
+	mediaDir := getEnv("MEDIA_DIR", "/data/media")
 
 	trackedRaw := getEnv("TRACKED_CONTACTS", "")
 	var trackedContacts []string
@@ -89,6 +93,8 @@ func LoadConfig() (*Config, error) {
 		ExternalWebURL:              getEnv("EXTERNAL_WEB_URL", "http://localhost:8090"),
 		NotifyOnPhoneDisconnect:     notifyOnDisconnect,
 		PhoneDisconnectGraceMinutes: phoneGraceMinutes,
+		PullFullSizeMedia:           pullFullSizeMedia,
+		MediaDir:                    mediaDir,
 	}
 
 	return cfg, nil
