@@ -4,10 +4,11 @@
 // It is intended for tests only. Wire it into gm.ClientOptions through
 // exhttp.ClientSettings.TransportOverride: no sockets, DNS, or TLS are involved.
 //
-// This first slice covers the pairing handshake surface needed to drive
-// libgm.StartLogin to a QR challenge without touching Google. Remaining RPCs
-// (RefreshPhoneRelay, SignInGaia, SendMessage, FetchMessages, ListContacts, media)
-// are tracked in issue #62.
+// This slice covers the pairing handshake surface needed to drive
+// libgm.StartLogin to a QR challenge without touching Google, and injects the
+// long-poll PairEvent so a full pairing completes (session persisted) hermetically.
+// Remaining RPCs (RefreshPhoneRelay, SignInGaia, SendMessage, FetchMessages,
+// ListContacts, media) are tracked in issue #62.
 package emulator
 
 import (
@@ -20,6 +21,7 @@ import (
 
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 	exhttp "go.mau.fi/util/exhttp"
+	"go.mau.fi/util/pblite"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -32,11 +34,19 @@ type Transport struct {
 	mu         sync.Mutex
 	pairingKey []byte
 	requests   []string
+	paired     bool
 }
 
 // NewTransport creates an emulator transport with default fixtures.
 func NewTransport() *Transport {
 	return &Transport{pairingKey: append([]byte(nil), DefaultPairingKey...)}
+}
+
+// SetPaired marks the transport as having already delivered the pairing event.
+func (t *Transport) SetPaired(v bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.paired = v
 }
 
 // Settings returns exhttp.ClientSettings that route every libgm request through t.
@@ -75,7 +85,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			PairingKey: pairingKey,
 			AuthKeyData: &gmproto.TokenData{
 				TachyonAuthToken: []byte("emulator-tachyon-token"),
-				TTL:              3600_000_000, // microseconds (1 hour)
+				TTL:              86_400_000_000, // microseconds (24 hours)
 			},
 			Browser:    &gmproto.Device{SourceID: "emulator-browser"},
 			ValidFor:   600,
@@ -89,8 +99,19 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		})
 
 	case strings.HasSuffix(path, "/ReceiveMessages"):
-		// Long-poll: block until the caller cancels. Event injection lands with the
-		// next slice of #62.
+		t.mu.Lock()
+		deliverPair := !t.paired
+		if deliverPair {
+			t.paired = true
+		}
+		t.mu.Unlock()
+
+		if deliverPair {
+			return t.pairingResponse(req)
+		}
+
+		// Steady-state long-poll: block until the caller cancels. Injecting
+		// post-pairing message events is tracked in #62.
 		<-req.Context().Done()
 		return nil, req.Context().Err()
 
@@ -113,3 +134,89 @@ func protobufResponse(req *http.Request, msg proto.Message) (*http.Response, err
 		Request: req,
 	}, nil
 }
+
+// PairingData is the fixture emitted on the first long-poll request to complete
+// a simulated pairing. Fields are exported so tests can inspect them.
+type PairingData struct {
+	Mobile  *gmproto.Device
+	Browser *gmproto.Device
+	Token   *gmproto.TokenData
+}
+
+// DefaultPairingData returns the default simulated phone/browser pair.
+func DefaultPairingData() PairingData {
+	return PairingData{
+		Mobile:  &gmproto.Device{SourceID: "emulator-phone", UserID: 1, Network: "Bugle"},
+		Browser: &gmproto.Device{SourceID: "emulator-browser", UserID: 1, Network: "Bugle"},
+		Token: &gmproto.TokenData{
+			TachyonAuthToken: []byte("emulator-tachyon-token"),
+			TTL:              86_400_000_000, // microseconds (24 hours)
+		},
+	}
+}
+
+// pairingResponse builds the long-poll stream that delivers a PairEvent.
+//
+// readLongPoll consumes the opening "[[" marker, then each pblite element until
+// the JSON is complete, then the "]]" end marker. Each segment is returned by a
+// distinct Read call so the framing stays intact.
+func (t *Transport) pairingResponse(req *http.Request) (*http.Response, error) {
+	pair := DefaultPairingData()
+	pairBytes, err := proto.Marshal(&gmproto.RPCPairData{
+		Event: &gmproto.RPCPairData_Paired{Paired: &gmproto.PairedData{
+			Mobile:    pair.Mobile,
+			Browser:   pair.Browser,
+			TokenData: pair.Token,
+		}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("emulator (HARN-02): marshal pair event: %w", err)
+	}
+
+	element, err := pblite.Marshal(&gmproto.LongPollingPayload{
+		Data: &gmproto.IncomingRPCMessage{
+			ResponseID:  "emulator-pair-response",
+			BugleRoute:  gmproto.BugleRoute_PairEvent,
+			MessageData: pairBytes,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("emulator (HARN-02): marshal long-poll payload: %w", err)
+	}
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"application/json+protobuf"},
+		},
+		Body: &segmentReader{segments: [][]byte{
+			[]byte("[["),
+			element,
+			[]byte("]]"),
+		}},
+		Request: req,
+	}, nil
+}
+
+// segmentReader serves each segment in its own Read call so a buffered reader
+// cannot coalesce protocol markers with payload bytes.
+type segmentReader struct {
+	segments [][]byte
+	index    int
+}
+
+func (r *segmentReader) Read(p []byte) (int, error) {
+	if r.index >= len(r.segments) {
+		return 0, io.EOF
+	}
+	seg := r.segments[r.index]
+	n := copy(p, seg)
+	if n < len(seg) {
+		r.segments[r.index] = seg[n:]
+	} else {
+		r.index++
+	}
+	return n, nil
+}
+
+func (r *segmentReader) Close() error { return nil }
