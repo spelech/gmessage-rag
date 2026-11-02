@@ -94,6 +94,18 @@ func TestBuildServeMux_RouteRegistration(t *testing.T) {
 	mux.ServeHTTP(recStatus, reqStatus)
 	assert.Equal(t, http.StatusOK, recStatus.Code)
 	assert.Contains(t, recStatus.Body.String(), "degraded")
+
+	// 8. Briefing API GET /api/v1/briefing (nil db -> 503 Service Unavailable)
+	reqBriefing := httptest.NewRequest(http.MethodGet, "/api/v1/briefing", nil)
+	recBriefing := httptest.NewRecorder()
+	mux.ServeHTTP(recBriefing, reqBriefing)
+	assert.Equal(t, http.StatusServiceUnavailable, recBriefing.Code)
+
+	// 9. Briefing alias GET /api/v1/briefing/today
+	reqBriefingToday := httptest.NewRequest(http.MethodGet, "/api/v1/briefing/today", nil)
+	recBriefingToday := httptest.NewRecorder()
+	mux.ServeHTTP(recBriefingToday, reqBriefingToday)
+	assert.Equal(t, http.StatusServiceUnavailable, recBriefingToday.Code)
 }
 
 // TestStartETLForTrackedContacts_EarlyReturn verifies nil dependencies or empty contacts return immediately.

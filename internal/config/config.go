@@ -29,6 +29,8 @@ type Config struct {
 	EnableMCPSendMessage        bool
 	MCPAccessToken              string
 	WebhookURL                  string
+	WebhookAuthToken            string
+	WebhookHMACSecret           string
 	AppriseURL                  string
 	NtfyURL                     string
 	ExternalWebURL              string
@@ -92,6 +94,8 @@ func LoadConfig() (*Config, error) {
 		EnableMCPSendMessage:        enableSend,
 		MCPAccessToken:              getEnv("MCP_ACCESS_TOKEN", ""),
 		WebhookURL:                  getEnv("WEBHOOK_URL", ""),
+		WebhookAuthToken:            getEnv("WEBHOOK_AUTH_TOKEN", ""),
+		WebhookHMACSecret:           getEnv("WEBHOOK_HMAC_SECRET", ""),
 		AppriseURL:                  getEnv("APPRISE_URL", ""),
 		NtfyURL:                     getEnv("NTFY_URL", ""),
 		ExternalWebURL:              getEnv("EXTERNAL_WEB_URL", "http://localhost:8090"),
