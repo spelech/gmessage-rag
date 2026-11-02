@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc2] - 2026-11-02
+
+### Added
+- **Multi-Tab Dashboard & Diagnostic Panels (`UI-05`, #59)**: Embedded interactive Diagnostic Test Bench and Runtime Tuner panels directly into the Web Management Dashboard via 3-tab navigation (`Overview`, `Diagnostic Test Bench`, `Runtime Tuner`).
+- **Automated Chromedp Layout Audit & Visual Regression Harness (`TEST-04`, #57)**: Pure-Go `chromedp` visual regression and ergonomics audit (`internal/web/layout_audit_test.go`) validating zero horizontal overflow, $\ge 44\text{px}$ touch targets, and dark/light theme rendering across mobile, tablet, and desktop breakpoints.
+- **Dashboard Accessibility & Inline Error Recovery (`UI-04`, #58)**: WCAG 2.1 AA focus rings, `table-responsive` mobile overflow wrappers, `aria-live="polite"` real-time status badges, and retryable network error banners.
+- **GHCR Container Packaging & Release Pipeline (`CI-03`)**: Added `.github/workflows/release.yml` automating container build and publishing to GitHub Container Registry (`ghcr.io/spelech/gmessage-rag:v1.0.0-rc2`) on release tags.
+
+### Fixed
+- **Daemon Lifecycle Context Propagation (`DAEMON-01`, `TEST-03`)**: Propagated Cobra `cmd.Context()` and `SESSION_PATH` environment overrides in `runServe` for deterministic HTTP connection draining and testing.
+- **Quality & Concurrency Invariants**: Maintained $\ge 80\%$ statement coverage across all packages with 0 data races in `go test -race ./...`.
+
 ## [1.0.0-rc1] - 2026-11-02
 
 ### Added
