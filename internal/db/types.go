@@ -1,0 +1,47 @@
+package db
+
+import (
+	"errors"
+	"time"
+)
+
+// ErrNotFound is returned when an entity is not found in the database.
+var ErrNotFound = errors.New("not found")
+
+// Conversation represents a conversation thread record.
+type Conversation struct {
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Participants     []string       `json:"participants"`
+	IsGroup          bool           `json:"is_group"`
+	IsTracked        bool           `json:"is_tracked"`
+	LastMessageAt    *time.Time     `json:"last_message_at,omitempty"`
+	BackfillCursor   *string        `json:"backfill_cursor,omitempty"`
+	BackfillComplete bool           `json:"backfill_complete"`
+	Metadata         map[string]any `json:"metadata"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+}
+
+// Reaction represents an emoji reaction on a message.
+type Reaction struct {
+	Sender string `json:"sender"`
+	Emoji  string `json:"emoji"`
+}
+
+// Message represents an individual SMS/RCS message record.
+type Message struct {
+	ID               string     `json:"id"`
+	ConversationID   string     `json:"conversation_id"`
+	SessionID        *int64     `json:"session_id,omitempty"`
+	SenderID         string     `json:"sender_id"`
+	SenderName       string     `json:"sender_name"`
+	IsFromMe         bool       `json:"is_from_me"`
+	SentAt           time.Time  `json:"sent_at"`
+	Body             string     `json:"body"`
+	ReplyToMessageID *string    `json:"reply_to_message_id,omitempty"`
+	Reactions        []Reaction `json:"reactions"`
+	RawStatus        *int32     `json:"raw_status,omitempty"`
+	IsBackfill       bool       `json:"is_backfill"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
