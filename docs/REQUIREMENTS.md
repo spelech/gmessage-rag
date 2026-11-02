@@ -58,6 +58,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`SEC-02`** | `SEC` | [x] Complete | **Full-Resolution Media Retrieval** | PR #38, commit `8d5b7e4` | When opted-in (`PULL_FULL_SIZE_MEDIA=true`), requests full-resolution image assets via `GetFullSizeImage` before running Vision OCR (default: progressive thumbnail). | `internal/gm/media_test.go::TestMediaDownload_FullSizeOption` |
 | **`SEC-03`** | `SEC` | [x] Complete | **CI Vulnerability Scanning & Race Checks** | Issue #30, commit `30b0cb6` | Enforces `govulncheck` static call-graph vulnerability scanning and `go test -race` concurrency validation in CI and Makefile targets. | GitHub Actions CI & `Makefile::vulncheck` |
 | **`HARN-01`** | `HARN` | [x] Complete | **Protobuf Disturbance Simulation Fixture** | Issue #29, commit `ecac8e2` | In-memory Google Messages WebSocket simulation server injecting synthetic protobuf frames (disconnects, media bursts, typing events, payload corruption) for deterministic CI verification. | `internal/gm/testing/mock_server_test.go::TestMockGMServer_DisturbanceRecovery` |
+| **`HARN-02`** | `HARN` | [ ] In Progress | **In-Process libgm Protocol Emulator** | Issue #62 | Hermetic, in-process implementation of the Google Messages RPC surface, wired through the `exhttp.ClientSettings.TransportOverride` injection point (no libgm fork). First slice covers the pairing handshake (`RegisterPhoneRelay`, `/web/config`). | `internal/gm/emulator_e2e_test.go::TestEmulator_StartLoginReturnsQR` |
 | **`HARN-03`** | `HARN` | [x] Complete | **Hermetic Test Suite & Live Network Quarantine** | Issue #63 | Default `go test ./...` runs fully offline: `internal/gm` installs a deny-all HTTP transport via the `libgm` constructor seam. Live-network tests are quarantined behind the `live` build tag and `LIVE_GM_TEST=1`. | `internal/gm/hermetic_test.go::TestHermeticGuard_BlocksOutboundRegistration` |
 | **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/ui_test.go::TestUI_DashboardRendering` |
 | **`UI-02`** | `UI` | [x] Complete | **Interactive Test Bench (Context-Cortex style)** | PR #45, commit `91e8fcc` | Developer harness in web UI to execute ad-hoc Hybrid RRF queries, test MCP tools with live responses, inspect XML boundaries, and review dossier history diffs. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
@@ -245,6 +246,16 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Status**: `[x] Complete` (Issue #29, commit `ecac8e2`)
 - **Description**: Provides an in-memory Google Messages WebSocket simulation harness capable of injecting raw protobuf disturbance frames (pairing challenges, sudden socket disconnections, bursts of concurrent RCS media attachments, rapid-fire typing indicators, corrupt chunks) to verify daemon resilience without physical hardware.
 - **Verification**: Simulation suite running in CI with zero hardware dependencies, verifying deterministic recovery.
+
+### `HARN-02`: In-Process libgm Protocol Emulator
+- **Category**: `HARN` (`PositiveFeature`)
+- **Status**: `[ ] In Progress` (Issue #62)
+- **Description**: An in-repo, hermetic emulator for the Google Messages HTTP RPC surface that `libgm` speaks, wired through `exhttp.ClientSettings.TransportOverride`. No `libgm` fork and no sockets. The first slice covers the pairing handshake:
+  1. `RegisterPhoneRelay` returns a valid `RegisterPhoneRelayResponse` (pairing key, token data, browser device).
+  2. `/web/config` returns a `Config` payload.
+  3. `ReceiveMessages` long-poll blocks until cancellation (event injection is a follow-up slice).
+- **Remaining scope (Issue #62)**: `RefreshPhoneRelay`, `SignInGaia`/`RegisterRefresh`, `SendMessage`/`AckMessages`, `FetchMessages` cursor paging, `ListContacts`, media upload/download, and long-poll event injection (`PairSuccessful`, `WrappedMessage`).
+- **Verification**: `internal/gm/emulator_e2e_test.go::TestEmulator_StartLoginReturnsQR` drives the real `libgm.StartLogin` through the emulator and asserts a QR challenge is produced with zero network access.
 
 ### `HARN-03`: Hermetic Test Suite & Live Network Quarantine
 - **Category**: `HARN` (`FailClosedGuardrail`)
