@@ -91,9 +91,23 @@ This roadmap establishes the phased path from active feature implementation to a
 
 ### 4.5 Component-by-Component ≥ 80% Coverage Sprint (`TEST-01`, `TEST-02`, `TEST-03`)
 - Enforce strict $\ge 80\%$ statement and branch test coverage across all individual packages prior to release:
-  - [ ] **Issue #54 (`TEST-01`)**: `internal/db` queries, media attachments, unindexed counts, and FTS search (target $\ge 80\%$, currently 68.2%).
-  - [ ] **Issue #55 (`TEST-02`)**: `internal/gm` client accessors, pairing handlers, and Gaia pairing error paths (target $\ge 80\%$, currently 66.6%).
-  - [ ] **Issue #56 (`TEST-03`)**: `cmd/gmessages-rag` daemon serve, ETL runner, and CLI boundary tests (target $\ge 80\%$, currently 37.0%).
+  - [x] **Issue #54 (`TEST-01`)**: `internal/db` queries, media attachments, unindexed counts, and FTS search (80.2% achieved, commit `4d0cde7`).
+  - [x] **Issue #55 (`TEST-02`)**: `internal/gm` client accessors, pairing handlers, media extraction, and Gaia pairing error paths (85.6% achieved, commits `d83527e`, `2b5c19d`).
+  - [x] **Issue #56 (`TEST-03`)**: `cmd/gmessages-rag` daemon serve, ETL runner, and CLI boundary tests (80.7% achieved, commit `095e789`).
+
+#### Final Package Coverage Matrix:
+| Package | Statement Coverage | Race Status | Status (Target $\ge$ 80%) |
+| :--- | :--- | :--- | :--- |
+| `internal/config` | **97.8%** | 0 data races | PASS |
+| `internal/obs` | **96.8%** | 0 data races | PASS |
+| `internal/pipeline` | **93.0%** | 0 data races | PASS |
+| `internal/notify` | **92.2%** | 0 data races | PASS |
+| `internal/web` | **86.8%** | 0 data races | PASS |
+| `internal/gm/testing` | **86.0%** | 0 data races | PASS |
+| `internal/gm` | **85.6%** | 0 data races | PASS |
+| `internal/mcpserver` | **82.4%** | 0 data races | PASS |
+| `cmd/gmessages-rag` | **80.7%** | 0 data races | PASS |
+| `internal/db` | **80.2%** | 0 data races | PASS |
 
 ### 4.6 Versioned Release (`v1.0.0-rc1` / `v1.0.0`)
 - [x] Cut initial release candidate tag `v1.0.0-rc1` and publish pre-release on GitHub. *(Completed)*
