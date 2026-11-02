@@ -455,5 +455,47 @@ sequenceDiagram
 - In addition to completed message timestamps, `internal/pipeline/debouncer.go` listens to `UpdateEvents_TypingEvent`.
 - If participant is typing or user is drafting an outbound response, the 30-minute idle window pauses or resets, avoiding split sessions while thoughts are being exchanged.
 
+---
+
+## Single-Device Pairing Architectures (`AUTH-04`)
+
+When pairing on a mobile phone without a second computer, camera QR scanning is impossible because the QR code would be on the same display as the camera. `gmessages-rag` solves this via two single-device mechanisms:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Daemon as gmessages-rag Daemon
+    participant LibGM as libgm Gaia Engine
+    participant Push as Apprise / ntfy
+    participant Phone as User Mobile Device
+    participant GMApp as Google Messages Android App
+
+    Note over Daemon,GMApp: Flow A: Gaia Google Account Emoji Challenge (No Camera Needed)
+    Daemon->>LibGM: StartGaiaPairing()
+    LibGM-->>Daemon: Challenge Emoji (e.g. 🚀 Rocket)
+    Daemon->>Push: Push Alert ("Google Messages challenge: Select 🚀")
+    Push-->>Phone: Notification ("Pairing challenge: 🚀")
+    Phone->>GMApp: Open Google Messages -> Device Pairing
+    GMApp-->>Phone: Prompt ("Which emoji matches your computer?")
+    Phone->>GMApp: Tap 🚀
+    GMApp->>LibGM: Ukey2 Handshake Completed
+    LibGM-->>Daemon: PairSuccessful (0600 session.json saved)
+
+    Note over Daemon,GMApp: Flow B: App-Link / Deep-Link Intent (Camera Bypass)
+    Daemon->>Push: Notification with intent link (`messages://pair?token=...`)
+    Phone->>GMApp: Opens Google Messages pairing handler directly
+```
+
+### 1. Gaia Emoji Matching Flow (`libgm.Client.DoGaiaPairing`)
+1. Modern Google Messages accounts support "Pair with Google Account" instead of QR codes.
+2. In this flow, Google sends a 3-choice emoji challenge to the phone screen.
+3. The daemon requests the pairing challenge, captures the expected emoji symbol (e.g. `🚀` or `🐶`), and displays it on the web interface or sends it via Apprise push notification.
+4. You simply open Google Messages on the same phone and tap the matching emoji. **Zero cameras or secondary screens required.**
+
+### 2. Gallery / Split-Screen / Quick-Share Workaround
+- For standard QR pairing, Google Messages on Android allows scanning from a gallery screenshot on some versions, or opening `/pair` in split-screen/floating-window mode.
+- However, the **Gaia Emoji Match (`AUTH-04`)** is the first-class solution that makes single-device authentication seamless.
+
+
 
 
