@@ -237,6 +237,18 @@ func ExtractAndSaveMediaWithOptions(ctx context.Context, downloader MediaDownloa
 
 		reader, err := downloader.DownloadMedia(mediaID, decryptionKey)
 		if err != nil {
+			// If downloading primary media failed and thumbnail is available, fall back to thumbnail
+			thumbID := mediaContent.GetThumbnailMediaID()
+			thumbKey := mediaContent.GetThumbnailDecryptionKey()
+			if thumbID != "" && len(thumbKey) > 0 && thumbID != mediaID {
+				thumbReader, thumbErr := downloader.DownloadMedia(thumbID, thumbKey)
+				if thumbErr == nil {
+					reader = thumbReader
+					err = nil
+				}
+			}
+		}
+		if err != nil {
 			return nil, fmt.Errorf("download media %s: %w", mediaID, err)
 		}
 
