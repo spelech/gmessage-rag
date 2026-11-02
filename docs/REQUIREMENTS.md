@@ -65,6 +65,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`UI-02`** | `UI` | [x] Complete | **Interactive Test Bench (Context-Cortex style)** | PR #45, commit `91e8fcc` | Developer harness in web UI to execute ad-hoc Hybrid RRF queries, test MCP tools with live responses, inspect XML boundaries, and review dossier history diffs. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
 | **`UI-03`** | `UI` | [x] Complete | **Parameter & Pipeline Tuner** | PR #44, commit `2407ed6` | Web interface to view and hot-tune pipeline parameters (debouncer idle duration, RRF $k$ factor, OCR model endpoint, backfill window). | `internal/config/tuner_test.go::TestRuntimeTuner_ConcurrentUpdatesAndNotification` |
 | **`UI-05`** | `UI` | [x] Complete | **Embedded Test Bench & Tuner in Dashboard** | PR #49 | Integrates UI-02 (Diagnostic Test Bench) and UI-03 (Runtime Tuner) into tabbed navigation in index.html with interactive MCP tools, hybrid RRF search, guardrail sanitizer, and hot-tuning REST endpoints. | `internal/web/dashboard_test.go::TestDashboardUI_AssetServing` |
+| **`UI-06`** | `UI` | [x] Complete | **VitePress Google Brand Theme** | Issue #71 | Custom VitePress theme (`docs/.vitepress/theme`) applies the Google four-color palette (blue #4285F4, green #34A853, yellow #FBBC05, red #EA4335) to brand/tip/warning/danger tokens with light and dark variants, a four-color hero wordmark, and a palette-aligned Mermaid theme. | `npm run docs:build` and screenshots `assets/screenshots/docs_*.png` |
 | **`CLEANUP-01`**| `CLEANUP` | [x] Complete | **Dead Code & Error Handling Hardening** | Issue #42, commit `c279ebd` | Purged redundant models, eliminated ignored errors, guaranteed strict error propagation on file operations, and added `goleak` goroutine lifecycle validation. | Full package test suite & `go test -race ./...` |
 | **`DOCKER-01`** | `DOCKER` | [x] Complete | **Hardened Non-Root Container & PUID/PGID** | Issue #42, commit `c279ebd` | Hardened multi-stage non-root container with `PUID`/`PGID` permission handling, `.env.example` alignment, and immutable volume mounts. | `Dockerfile`, `docker-compose.yml` |
 | **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/serve_test.go::TestBuildServeMux_Wiring` |
@@ -297,6 +298,12 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Status**: `[x] Complete` (PR #49)
 - **Description**: Embeds interactive Diagnostic Test Bench (`UI-02`) and Runtime Tuner (`UI-03`) views into tabbed navigation in `internal/web/assets/index.html`. Operators can execute in-process MCP tools with JSON argument templates, benchmark hybrid RRF ranking, test guardrail XML escaping, and adjust runtime thresholds via `/api/v1/tuner` without restarting the daemon.
 - **Verification**: Unit and asset integration tests in `internal/web/dashboard_test.go::TestDashboardUI_AssetServing`, `TestAPI_TunerEndpoints`, and `internal/web/testbench_test.go::TestTestBench_RouteIntegrationWithDashboard`.
+
+### `UI-06`: VitePress Google Brand Theme
+- **Category**: `UI` (`PositiveFeature`)
+- **Status**: `[x] Complete` (Issue #71)
+- **Description**: A custom VitePress theme (`docs/.vitepress/theme/index.ts` + `custom.css`) themes the documentation portal with Google's four brand colors: blue `#4285F4` for brand/primary, green `#34A853` for tip/success, yellow `#FBBC05` for warning/highlight, and red `#EA4335` for danger/error. Dark mode uses lighter tints for contrast. The home hero wordmark uses a four-color gradient, and the Mermaid theme is palette-aligned.
+- **Verification**: `npm run docs:build` succeeds; light and dark screenshots captured at `assets/screenshots/docs_home_*.png` and `assets/screenshots/docs_guide_*.png` via headless Chromium.
 
 ### `CLEANUP-01`: Dead Code & Error Handling Hardening
 - **Category**: `CLEANUP` (`NonFunctional`)
