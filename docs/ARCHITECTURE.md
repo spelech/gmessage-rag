@@ -355,3 +355,35 @@ Clients and gateways utilize the standard `ping` method to evaluate daemon liven
   ```
 - **Send Message Guard**: The outbound `send_message` tool is omitted from `tools/list` and rejected in `tools/call` unless `ENABLE_MCP_SEND_MESSAGE=true` is set.
 
+---
+
+## Web Management UI & Diagnostic Test Bench Architecture (Milestone 6)
+
+Similar to the **Context-Cortex** control console, `gmessages-rag` provides an embedded single-page application (SPA) and diagnostic test bench hosted directly by the Go binary on port 8090:
+
+```mermaid
+flowchart TD
+    User([Browser / Developer]) <--> WebServer["Go Web Server (:8090)"]
+    WebServer --> DashboardSPA["Web Management SPA (Embedded HTML/JS)"]
+    WebServer --> TestBenchAPI["Diagnostic Test Bench API (/api/v1/testbench/*)"]
+    WebServer --> ConfigTuner["Parameter & Pipeline Tuner"]
+
+    TestBenchAPI -->|Invoke Tools| MCPServer["MCP Server Engine"]
+    TestBenchAPI -->|Execute Hybrid RRF| Postgres[("PostgreSQL + pgvector")]
+    TestBenchAPI -->|Image OCR Test| VisionWorker["Vision OCR Pipeline"]
+    ConfigTuner -->|Live Overrides| PipelineEngine["Ingestion & Dossier Pipeline"]
+```
+
+### 1. Management Console Capabilities
+- **Overview & Diagnostics**: Real-time status of `libgm` connection, token expiration countdown, database table counts, and event stream monitor.
+- **Pairing Visualizer**: Live SVG/PNG QR rendering with one-click refresh, pairing status indicators, and session revoke options.
+- **Tracked Contact Roster**: Searchable list of conversations with toggle switches to track/untrack threads, trigger backfill, or force immediate dossier reconciliation.
+- **Parameter Tuner**: Hot-reloadable operational variables (idle debouncer duration, RRF $k$ score weighting, page size, prompt overrides) without process restarts.
+
+### 2. Context-Cortex Style Test Bench
+- **MCP Playground**: Interactive interface allowing developers to trigger any MCP tool with custom arguments and view the formatted output, response timings, and raw JSON-RPC payloads.
+- **Guardrail Visualizer**: Highlights `<untrusted_conversation_data>` boundaries to visually confirm that untrusted texts cannot escape or inject instructions.
+- **Hybrid RRF Search Workbench**: Input arbitrary text queries and vector embeddings to view top-$N$ ranked chunks, showing full-text rank vs cosine similarity rank side-by-side.
+- **Dossier Audit Diff Viewer**: Side-by-side chronological diff viewer showing how a contact's Living Dossier evolved across versions in `contact_dossier_history`.
+
+

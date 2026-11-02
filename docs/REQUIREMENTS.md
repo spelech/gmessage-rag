@@ -17,6 +17,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`SEC`** | Content-addressed media storage, session token file permissions (`0600`), secret isolation | `FailClosedGuardrail` |
 | **`TRANS`** | Web server (`/health`, `/pair`, `/api/v1/*`), Home Assistant briefing API, outbound webhooks | `PositiveFeature` / `FailClosedGuardrail` |
 | **`PIPE`** | Vision OCR sidecar, 2-hour sessionizer, 30m idle debouncer, and Living Dossier LLM reconciliation | `PositiveFeature` / `FailClosedGuardrail` |
+| **`UI`** | Web Management Dashboard, parameter tuner, live test bench & pairing console | `PositiveFeature` / `FailClosedGuardrail` |
 
 ---
 
@@ -47,6 +48,9 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`TRANS-01`** | `TRANS` | `PositiveFeature` | **Health Check Probe** | Exposes `/health` returning HTTP 200 with database connectivity status and version JSON. | `internal/web/server_test.go::TestHealthEndpoint_ReturnsHealthy` |
 | **`TRANS-02`** | `TRANS` | `PositiveFeature` | **Streamable MCP & SSE Endpoints** | Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090. | `internal/web/server_test.go::TestMCPEndpoints_HTTPAndSSE` |
 | **`TRANS-03`** | `TRANS` | `PositiveFeature` | **Briefing API & Outbound Webhook** | Exposes `/api/v1/briefing/today` for Home Assistant REST sensors and dispatches POST to `WEBHOOK_URL` when dossiers update. | `internal/web/webhook_test.go::TestWebhookDispatch_OnDossierUpdate` |
+| **`UI-01`** | `UI` | `PositiveFeature` | **Web Management Dashboard** | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/ui_test.go::TestUI_DashboardRendering` |
+| **`UI-02`** | `UI` | `PositiveFeature` | **Interactive Test Bench (Context-Cortex style)** | Developer harness in web UI to execute ad-hoc Hybrid RRF queries, test MCP tools with live responses, inspect XML boundaries, and review dossier history diffs. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
+| **`UI-03`** | `UI` | `PositiveFeature` | **Parameter & Pipeline Tuner** | Web interface to view and hot-tune pipeline parameters (debouncer idle duration, RRF $k$ factor, OCR model endpoint, backfill window). | `internal/web/ui_test.go::TestUI_ParameterTuning` |
 
 ---
 
@@ -75,4 +79,24 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
   3. **Protocol Header**: HTTP responses (both Streamable HTTP and SSE) return `Mcp-Protocol-Version: 2026-07-28`.
   4. **Multi-Transport**: Supports stateless Streamable HTTP (`POST /mcp`), Server-Sent Events (`GET /sse`), and standard I/O (`stdio`).
 - **Verification**: Unit tests in `internal/mcpserver/server_test.go` asserting `ping` handling, `Mcp-Protocol-Version: 2026-07-28` response header, initialization lifecycle, and tool invocation.
+
+### `UI-01`: Web Management Dashboard
+- **Category**: `UI` (`PositiveFeature`)
+- **Description**: Embedded web UI served on `/` showing daemon status, libgm pairing state (with live QR code rendering), PostgreSQL connectivity and row counts, tracked contact toggles, and recent event logs.
+- **Verification**: Browser and handler tests asserting HTML rendering, JSON status polling, and pairing widget interactivity.
+
+### `UI-02`: Interactive Test Bench (Context-Cortex style)
+- **Category**: `UI` (`PositiveFeature`)
+- **Description**: Developer diagnostic test bench providing interactive sandboxes to:
+  1. Test all 6 MCP tools with arbitrary arguments and inspect formatted output (including `<untrusted_conversation_data>` boundaries).
+  2. Run ad-hoc Hybrid RRF queries against ingested conversation sessions with vector vs full-text score breakdown.
+  3. Simulate Vision OCR extraction on user-uploaded test images.
+  4. Inspect Living Dossier structured JSON, rendered Markdown, and audit snapshot history diffs.
+- **Verification**: Integration tests asserting test bench API handlers (`/api/v1/testbench/*`) execute queries, return raw & wrapped payloads, and provide accurate diagnostic output.
+
+### `UI-03`: Parameter & Pipeline Tuner
+- **Category**: `UI` (`PositiveFeature`)
+- **Description**: Web interface to inspect configuration and hot-tune operational parameters (such as debouncer idle window, RRF fusion $k$ factor, Vision OCR prompts, and backfill page limits) without restarting the container.
+- **Verification**: Unit tests asserting parameter update endpoints persist runtime overrides and notify active workers.
+
 
