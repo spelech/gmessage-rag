@@ -103,10 +103,10 @@ func TestStartETLForTrackedContacts_EarlyReturn(t *testing.T) {
 	defer cancel()
 
 	// 1. Empty contacts
-	StartETLForTrackedContacts(ctx, logger, nil, nil, nil, 100)
+	StartETLForTrackedContacts(ctx, logger, nil, nil, nil, nil, 100)
 
 	// 2. Nil DB
-	StartETLForTrackedContacts(ctx, logger, nil, nil, []string{"contact-1"}, 100)
+	StartETLForTrackedContacts(ctx, logger, nil, nil, nil, []string{"contact-1"}, 100)
 }
 
 // TestPairCommand_ContextCancel tests that pair command respects context cancellation and handles errors gracefully.
@@ -214,7 +214,7 @@ func TestStartETLForTrackedContacts_Execution(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	StartETLForTrackedContacts(ctx, logger, database, client, []string{"tracked-1", "tracked-2"}, 50)
+	StartETLForTrackedContacts(ctx, logger, database, client, nil, []string{"tracked-1", "tracked-2"}, 50)
 	time.Sleep(50 * time.Millisecond)
 }
 
