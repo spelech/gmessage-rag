@@ -3,6 +3,8 @@ module github.com/spelech/gmessage-rag
 go 1.26.0
 
 require (
+	github.com/chromedp/cdproto v0.159.0
+	github.com/chromedp/chromedp v0.21.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/mdp/qrterminal/v3 v3.2.1
@@ -21,6 +23,7 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
