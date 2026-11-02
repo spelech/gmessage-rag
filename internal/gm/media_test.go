@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/iotest"
 
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
@@ -78,13 +80,29 @@ func TestDetermineExtension(t *testing.T) {
 		expected string
 	}{
 		{"image/jpeg", "", ".jpg"},
+		{"image/jpg", "", ".jpg"},
 		{"image/png", "", ".png"},
+		{"image/png; charset=utf-8", "", ".png"},
+		{"image/gif", "", ".gif"},
 		{"image/webp", "", ".webp"},
+		{"image/heic", "", ".heic"},
 		{"video/mp4", "", ".mp4"},
+		{"video/3gpp", "", ".3gp"},
+		{"video/quicktime", "", ".mov"},
 		{"audio/aac", "", ".m4a"},
+		{"audio/mp4", "", ".m4a"},
+		{"audio/amr", "", ".amr"},
+		{"audio/mpeg", "", ".mp3"},
+		{"audio/mp3", "", ".mp3"},
+		{"audio/ogg", "", ".ogg"},
 		{"text/vcard", "", ".vcf"},
+		{"text/x-vcard", "", ".vcf"},
+		{"application/pdf", "", ".pdf"},
+		{"application/json", "", ".json"},
 		{"application/octet-stream", "document.pdf", ".pdf"},
 		{"unknown/binary", "", ".bin"},
+		{"", "", ".bin"},
+		{"", "test.PNG", ".png"},
 	}
 
 	for _, tt := range tests {
@@ -371,4 +389,121 @@ func TestSaveAttachment_DirectValidation(t *testing.T) {
 	if parentInfo.Mode().Perm() != 0700 {
 		t.Errorf("expected 0700 dir permissions, got %o", parentInfo.Mode().Perm())
 	}
+}
+
+func TestSaveAttachment_DuplicateAndErrors(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Initial save
+	sampleData := []byte("duplicate-test-content-bytes")
+	rel1, hash1, written1, err := SaveAttachment(bytes.NewReader(sampleData), tempDir, ".jpg")
+	if err != nil {
+		t.Fatalf("first SaveAttachment failed: %v", err)
+	}
+
+	// 2. Duplicate save (should hit os.Stat(targetPath) == nil and discard temp file idempotently)
+	rel2, hash2, written2, err := SaveAttachment(bytes.NewReader(sampleData), tempDir, ".jpg")
+	if err != nil {
+		t.Fatalf("second SaveAttachment failed: %v", err)
+	}
+	if rel1 != rel2 || hash1 != hash2 || written1 != written2 {
+		t.Errorf("expected duplicate save to return identical values: %s vs %s", rel1, rel2)
+	}
+
+	// 3. Reader error
+	errReader := iotest.ErrReader(errors.New("mock read error"))
+	_, _, _, err = SaveAttachment(errReader, tempDir, ".jpg")
+	if err == nil {
+		t.Errorf("expected error from faulty reader, got nil")
+	}
+
+	// 4. Default media dir fallback
+	relDef, _, _, err := SaveAttachment(bytes.NewReader([]byte("default-dir-test")), "", ".bin")
+	if err == nil {
+		// Clean up file in DefaultMediaDir if created
+		_ = os.Remove(filepath.Join(DefaultMediaDir, relDef))
+	}
+}
+
+func TestExtractAndSaveMediaWithOptions_ErrorPathsAndThumbnails(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	opts := MediaOptions{BaseDir: tempDir}
+	downloader := &mockDownloader{
+		payloads: map[string][]byte{
+			"thumb-id-123": []byte("thumbnail-bytes"),
+		},
+	}
+
+	// 1. Nil message
+	if _, err := ExtractAndSaveMediaWithOptions(ctx, downloader, nil, opts); err == nil {
+		t.Errorf("expected error for nil message")
+	}
+
+	// 2. Nil downloader
+	dummyMsg := &gmproto.Message{MessageID: "msg-dummy"}
+	if _, err := ExtractAndSaveMediaWithOptions(ctx, nil, dummyMsg, opts); err == nil {
+		t.Errorf("expected error for nil downloader")
+	}
+
+	// 3. Thumbnail fallback path
+	thumbMsg := &gmproto.Message{
+		MessageID:      "msg-thumb-001",
+		ConversationID: "conv-thumb",
+		MessageInfo: []*gmproto.MessageInfo{
+			{
+				Data: &gmproto.MessageInfo_MediaContent{
+					MediaContent: &gmproto.MediaContent{
+						ThumbnailMediaID:       "thumb-id-123",
+						ThumbnailDecryptionKey: []byte("sample-thumb-key"),
+						MimeType:               "image/jpeg",
+						Dimensions: &gmproto.Dimensions{
+							Width:  640,
+							Height: 480,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	attachments, err := ExtractAndSaveMediaWithOptions(ctx, downloader, thumbMsg, opts)
+	if err != nil {
+		t.Fatalf("unexpected error for thumbnail fallback: %v", err)
+	}
+	if len(attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(attachments))
+	}
+	if attachments[0].Width == nil || *attachments[0].Width != 640 {
+		t.Errorf("expected width 640, got %v", attachments[0].Width)
+	}
+
+	// 4. Download error path
+	failingMsg := &gmproto.Message{
+		MessageID:      "msg-fail-001",
+		ConversationID: "conv-fail",
+		MessageInfo: []*gmproto.MessageInfo{
+			{
+				Data: &gmproto.MessageInfo_MediaContent{
+					MediaContent: &gmproto.MediaContent{
+						MediaID:       "unknown-media-id",
+						DecryptionKey: []byte("dec-key"),
+					},
+				},
+			},
+		},
+	}
+	errDownloader := &errMockDownloader{}
+	if _, err := ExtractAndSaveMediaWithOptions(ctx, errDownloader, failingMsg, opts); err == nil {
+		t.Errorf("expected error from failing downloader")
+	}
+
+	// 5. Test ExtractAndSaveMedia wrapper
+	_, _ = ExtractAndSaveMedia(ctx, downloader, thumbMsg, tempDir)
+}
+
+type errMockDownloader struct{}
+
+func (e *errMockDownloader) DownloadMedia(mediaID string, key []byte) (io.ReadCloser, error) {
+	return nil, errors.New("simulated network failure")
 }

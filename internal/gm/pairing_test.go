@@ -11,7 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mau.fi/mautrix-gmessages/pkg/libgm"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/events"
+	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
 // TestSessionPersistence_Permissions verifies AUTH-01 and SEC-01 requirements:
@@ -165,4 +167,70 @@ func TestPairCLI_ContextCancel(t *testing.T) {
 	// PairCLI should return context.Canceled if StartLogin fails or context cancels
 	err = client.PairCLI(ctx)
 	assert.Error(t, err)
+}
+
+func TestSaveAuthData_ErrorCases(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Nil authData
+	err := SaveAuthData(filepath.Join(tempDir, "session.json"), nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot save nil auth data")
+
+	// 2. Directory creation failure
+	authData := libgm.NewAuthData()
+	err = SaveAuthData("/dev/null/forbidden/session.json", authData)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create auth directory")
+
+	// 3. Write temp file failure (a directory already exists with the .tmp name)
+	sessionPath := filepath.Join(tempDir, "session.json")
+	require.NoError(t, os.Mkdir(sessionPath+".tmp", 0700))
+	err = SaveAuthData(sessionPath, authData)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to write tmp session file")
+}
+
+func TestLoadAuthData_Corrupt(t *testing.T) {
+	tempDir := t.TempDir()
+	corruptFile := filepath.Join(tempDir, "bad.json")
+	require.NoError(t, os.WriteFile(corruptFile, []byte("{invalid-json"), 0600))
+
+	_, err := LoadAuthData(corruptFile)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse session json")
+}
+
+func TestPairingHandler_Start(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+
+	client, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+	})
+	require.NoError(t, err)
+
+	handler := NewPairingHandler(client)
+
+	// 1. Start login initializes QR code and image
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err = handler.Start(ctx)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, handler.currentQR)
+	assert.NotEmpty(t, handler.qrImage)
+
+	// 2. When client is logged in, Start marks isPaired = true and returns nil immediately
+	client2, err := NewClient(ClientOptions{
+		SessionPath: filepath.Join(tempDir, "session2.json"),
+	})
+	require.NoError(t, err)
+	client2.AuthData().Browser = &gmproto.Device{}
+	client2.AuthData().SetCookies(map[string]string{"dummy": "cookie"})
+	assert.True(t, client2.LibGM().IsLoggedIn())
+
+	handler2 := NewPairingHandler(client2)
+	err = handler2.Start(context.Background())
+	assert.NoError(t, err)
+	assert.True(t, handler2.isPaired)
 }

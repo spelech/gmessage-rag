@@ -151,3 +151,13 @@ func TestGaiaPairing_SaveAuthData_Permissions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "session.json must have POSIX 0600 permissions")
 }
+
+func TestNewGaiaClient(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+	client, err := NewGaiaClient(ClientOptions{
+		SessionPath: sessionPath,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, client)
+}

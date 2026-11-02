@@ -2,6 +2,8 @@ package gm
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -10,7 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm"
+	"go.mau.fi/mautrix-gmessages/pkg/libgm/events"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
+	exhttp "go.mau.fi/util/exhttp"
 )
 
 // TestNormalizeTimestamp validates timestamp conversion across microseconds (> 10^14), milliseconds (> 10^11), and seconds.
@@ -173,4 +177,125 @@ func TestClient_MessageEventDispatch(t *testing.T) {
 	assert.Equal(t, "msg-incoming", upsertedMsg.GetMessageID())
 	assert.False(t, upsertedFromMe)
 	upsertMu.Unlock()
+}
+
+func TestClient_AccessorsAndOptions(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+
+	// 1. Nominal with sessionPath and HTTPClientSettings
+	httpSettings := &exhttp.ClientSettings{}
+	client, err := NewClient(ClientOptions{
+		SessionPath:        sessionPath,
+		HTTPClientSettings: httpSettings,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, client.LibGM())
+	assert.NotNil(t, client.AuthData())
+	assert.Equal(t, sessionPath, client.SessionPath())
+
+	// 2. Default session path when empty
+	clientDef, err := NewClient(ClientOptions{
+		SessionPath: "",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, DefaultSessionPath, clientDef.SessionPath())
+
+	// 3. Error when auth data file is corrupted JSON
+	corruptPath := filepath.Join(tempDir, "corrupt.json")
+	require.NoError(t, os.WriteFile(corruptPath, []byte("invalid-json-data"), 0600))
+	_, err = NewClient(ClientOptions{
+		SessionPath: corruptPath,
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load auth data")
+}
+
+func TestClient_ConnectAndReconnectLoop(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+	client, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+	})
+	require.NoError(t, err)
+
+	// Connect should fail when not logged in
+	ctx := context.Background()
+	err = client.Connect(ctx)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot connect: client is not logged in / paired")
+
+	// ReconnectLoop should return when context is canceled
+	cancelCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	client.ReconnectLoop(cancelCtx)
+}
+
+func TestClient_FetchMessages(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+	client, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	// FetchMessages without cursor
+	_, err = client.FetchMessages(ctx, "conv-1", 10, nil)
+	assert.Error(t, err) // Not logged in / connected
+
+	// FetchMessages with cursor
+	_, err = client.FetchMessages(ctx, "conv-1", 10, []byte("cursor-abc"))
+	assert.Error(t, err)
+}
+
+func TestClient_EventHandling_AllBranches(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+	var upsertCallCount int
+	var upsertErr error
+
+	client, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+		OnMessageUpsert: func(ctx context.Context, msg *gmproto.Message, isFromMe bool, sentAt time.Time) error {
+			upsertCallCount++
+			return upsertErr
+		},
+	})
+	require.NoError(t, err)
+
+	// 1. PairSuccessful event
+	client.handleEvent(&events.PairSuccessful{PhoneID: "phone-test-123"})
+	select {
+	case <-client.pairDone:
+		// channel was closed as expected
+	default:
+		t.Errorf("expected pairDone channel to be closed")
+	}
+	// Calling again should not panic on already-closed channel
+	client.handleEvent(&events.PairSuccessful{PhoneID: "phone-test-123"})
+
+	// 2. AuthTokenRefreshed event
+	client.handleEvent(&events.AuthTokenRefreshed{})
+
+	// 3. ListenFatalError event
+	fatalErr := errors.New("simulated fatal listener error")
+	client.handleEvent(&events.ListenFatalError{Error: fatalErr})
+	client.mu.RLock()
+	assert.Equal(t, fatalErr, client.lastPairError)
+	client.mu.RUnlock()
+
+	// 4. Default / unknown event
+	client.handleEvent("unknown-string-event")
+
+	// 5. handleIncomingMessage(nil)
+	client.handleIncomingMessage(nil)
+
+	// 6. Failing OnMessageUpsert
+	upsertErr = errors.New("upsert failure")
+	dummyMsg := &gmproto.Message{
+		MessageID: "msg-err-01",
+	}
+	client.handleIncomingMessage(dummyMsg)
+	assert.Equal(t, 1, upsertCallCount)
 }
