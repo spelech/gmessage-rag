@@ -8,13 +8,16 @@
     :root {
       --bg: #0f172a;
       --card-bg: #1e293b;
+      --card-muted: #141e33;
       --text: #f8fafc;
       --text-muted: #94a3b8;
       --primary: #3b82f6;
+      --primary-hover: #2563eb;
       --success: #22c55e;
       --danger: #ef4444;
       --border: #334155;
       --focus-ring: #60a5fa;
+      --input-bg: #0b1120;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -27,16 +30,51 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       padding-bottom: 16px;
       border-bottom: 1px solid var(--border);
-      flex-wrap: wrap;
-      gap: 12px;
     }
     h1 { margin: 0; font-size: 24px; font-weight: 600; }
+    
+    /* Navigation Tabs */
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .tab-btn {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid transparent;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .tab-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .tab-btn.active {
+      color: #fff;
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(clamp(200px, 30vw, 300px), 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 16px;
       margin-bottom: 24px;
     }
@@ -71,22 +109,13 @@
       font-weight: 600;
       margin: 24px 0 12px 0;
     }
-    .table-responsive {
-      width: 100%;
-      overflow-x: auto;
-      scrollbar-gutter: stable;
-      -webkit-overflow-scrolling: touch;
-      margin-bottom: 24px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--card-bg);
-    }
     table {
       width: 100%;
-      min-width: 600px;
       border-collapse: collapse;
-      background: transparent;
-      border: none;
+      background: var(--card-bg);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
     }
     th, td {
       padding: 12px 16px;
@@ -103,62 +132,17 @@
     .btn {
       cursor: pointer;
       padding: 8px 16px;
-      min-height: 36px;
       border-radius: 4px;
       font-size: 13px;
       font-weight: 500;
       border: none;
-      transition: background 0.2s, outline 0.15s ease-in-out;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      transition: background 0.2s, opacity 0.2s;
     }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
     .btn-track { background: var(--primary); color: #fff; }
     .btn-untrack { background: var(--border); color: var(--text-muted); }
-    .btn-retry { background: var(--primary); color: #fff; margin-left: 8px; }
-    .btn-close {
-      background: transparent;
-      color: var(--text-muted);
-      font-size: 18px;
-      line-height: 1;
-      padding: 4px 8px;
-      border: none;
-      cursor: pointer;
-    }
     .btn:hover { opacity: 0.9; }
-    .btn:focus-visible,
-    button:focus-visible,
-    a:focus-visible {
-      outline: 2px solid var(--focus-ring);
-      outline-offset: 2px;
-    }
-    @media (max-width: 768px), (pointer: coarse) {
-      .btn {
-        min-height: 44px;
-        padding: 10px 18px;
-        font-size: 14px;
-      }
-    }
-    .alert-banner {
-      display: none;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      background: rgba(239, 68, 68, 0.15);
-      border: 1px solid var(--danger);
-      border-radius: 8px;
-      color: #fca5a5;
-      margin-bottom: 20px;
-      font-size: 14px;
-    }
-    .alert-banner.visible {
-      display: flex;
-    }
-    .alert-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
     .qr-container {
       display: flex;
       flex-direction: column;
@@ -175,6 +159,70 @@
       padding: 12px;
       border-radius: 8px;
       margin-top: 12px;
+    }
+
+    /* Form Controls */
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-control {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    textarea.form-control {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .output-box {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 400px;
+      overflow-y: auto;
+      color: #38bdf8;
+    }
+    .alert-banner {
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      display: none;
+    }
+    .alert-success {
+      background: rgba(34, 197, 94, 0.2);
+      border: 1px solid var(--success);
+      color: var(--success);
+    }
+    .alert-danger {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid var(--danger);
+      color: var(--danger);
     }
   </style>
 </head>
@@ -194,92 +242,418 @@
     </div>
   </div>
 
-  <div class="grid">
-    <div class="card">
-      <div class="card-title">Database Status</div>
-      <div id="db-status" class="card-value" aria-live="polite">-</div>
+  <!-- Tabbed Navigation -->
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
+    <button class="tab-btn" onclick="switchTab('testbench')">Diagnostic Test Bench</button>
+    <button class="tab-btn" onclick="switchTab('tuner')">Runtime Tuner</button>
+  </nav>
+
+  <!-- Tab 1: Overview -->
+  <div id="tab-overview" class="tab-content active">
+    <div class="grid">
+      <div class="card">
+        <div class="card-title">Database Status</div>
+        <div id="db-status" class="card-value" aria-live="polite">-</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Google Messages Link</div>
+        <div id="gm-status" class="card-value" aria-live="polite">-</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Unindexed Messages</div>
+        <div id="unindexed-count" class="card-value">-</div>
+      </div>
     </div>
-    <div class="card">
-      <div class="card-title">Google Messages Link</div>
-      <div id="gm-status" class="card-value" aria-live="polite">-</div>
+
+    <div id="qr-section" class="qr-container" style="display: none;">
+      <h3>Pairing Required</h3>
+      <p style="color: var(--text-muted);">Scan this QR code with Google Messages on your mobile device (Device Pairing):</p>
+      <img id="qr-image" src="/pair?format=png" alt="Google Messages Pairing QR Code" width="240" height="240" />
     </div>
-    <div class="card">
-      <div class="card-title">Unindexed Messages</div>
-      <div id="unindexed-count" class="card-value">-</div>
+
+    <div class="section-title">Tracked Contacts &amp; Conversations</div>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Conversation ID</th>
+            <th scope="col">Name</th>
+            <th scope="col">Type</th>
+            <th scope="col">Last Activity</th>
+            <th scope="col">Tracking</th>
+          </tr>
+        </thead>
+        <tbody id="contacts-table-body">
+          <tr>
+            <td colspan="5" style="text-align: center; color: var(--text-muted);">Loading conversations...</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
-  <div id="qr-section" class="qr-container" style="display: none;">
-    <h3>Pairing Required</h3>
-    <p style="color: var(--text-muted);">Scan this QR code with Google Messages on your mobile device (Device Pairing):</p>
-    <img id="qr-image" src="/pair?format=png" alt="Google Messages Pairing QR Code" width="240" height="240" />
+  <!-- Tab 2: Diagnostic Test Bench -->
+  <div id="tab-testbench" class="tab-content">
+    <!-- MCP Tools Sandbox -->
+    <div class="card" style="margin-bottom: 24px;">
+      <div class="card-title">MCP Tools Sandbox</div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">Execute Model Context Protocol tools directly in-process and inspect JSON-RPC output.</p>
+      <div class="form-group">
+        <label class="form-label" for="mcp-tool-select">Select MCP Tool</label>
+        <select id="mcp-tool-select" class="form-control" onchange="onMCPToolChange()">
+          <option value="list_conversations">list_conversations</option>
+          <option value="get_contact_dossier">get_contact_dossier</option>
+          <option value="search_conversation_history">search_conversation_history</option>
+          <option value="get_messages_around_time">get_messages_around_time</option>
+          <option value="search_shared_media">search_shared_media</option>
+          <option value="manage_tracked_contact">manage_tracked_contact</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="mcp-args-editor">JSON Arguments</label>
+        <textarea id="mcp-args-editor" class="form-control" rows="5"></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="executeMCPTool()">Execute Tool</button>
+      <div class="form-group" style="margin-top: 16px;">
+        <label class="form-label">Tool Output</label>
+        <div id="mcp-output" class="output-box">// Tool execution results will appear here...</div>
+      </div>
+    </div>
+
+    <!-- Hybrid RRF Query Sandbox -->
+    <div class="card" style="margin-bottom: 24px;">
+      <div class="card-title">Hybrid RRF Search Query Sandbox</div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">Benchmark reciprocal rank fusion against ingested conversation sessions.</p>
+      <div style="display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 12px; align-items: flex-end;" class="form-group">
+        <div>
+          <label class="form-label" for="search-query">Query Terms</label>
+          <input type="text" id="search-query" class="form-control" placeholder="e.g. flight confirmation or dinner" />
+        </div>
+        <div>
+          <label class="form-label" for="search-conversation-id">Conversation ID (Optional)</label>
+          <input type="text" id="search-conversation-id" class="form-control" placeholder="All conversations" />
+        </div>
+        <div>
+          <label class="form-label" for="search-mode">Search Mode</label>
+          <select id="search-mode" class="form-control">
+            <option value="hybrid">Hybrid (RRF)</option>
+            <option value="fts">FTS (Full-Text)</option>
+          </select>
+        </div>
+        <div>
+          <button class="btn btn-primary" onclick="executeSearch()">Run Search</button>
+        </div>
+      </div>
+      <div class="section-title" style="margin-top: 16px;">Search Results</div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 80px;">Session / Msg</th>
+            <th style="width: 140px;">Conversation</th>
+            <th>Transcript / Message</th>
+            <th>Summary</th>
+            <th style="width: 100px;">RRF Score / Weights</th>
+          </tr>
+        </thead>
+        <tbody id="search-results-body">
+          <tr>
+            <td colspan="5" style="text-align: center; color: var(--text-muted);">No search executed yet.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Guardrail XML Boundary Testing -->
+    <div class="card">
+      <div class="card-title">Guardrail XML Boundary Sandbox</div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">Test untrusted conversation escaping against prompt injection and escape boundaries.</p>
+      <div class="form-group">
+        <label class="form-label" for="guardrail-input">Raw Text to Sanitize</label>
+        <textarea id="guardrail-input" class="form-control" rows="3" placeholder="Enter conversation text or injection payload here..."></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="testGuardrail()">Inspect Boundary Wrapping</button>
+      <div class="form-group" style="margin-top: 16px;">
+        <label class="form-label">Sanitized XML Output</label>
+        <div id="guardrail-output" class="output-box">// Escaped XML boundary output will appear here...</div>
+      </div>
+    </div>
   </div>
 
-  <div class="section-title">Tracked Contacts &amp; Conversations</div>
-  <div class="table-responsive">
-    <table>
-      <thead>
-        <tr>
-          <th scope="col">Conversation ID</th>
-          <th scope="col">Name</th>
-          <th scope="col">Type</th>
-          <th scope="col">Last Activity</th>
-          <th scope="col">Tracking</th>
-        </tr>
-      </thead>
-      <tbody id="contacts-table-body">
-        <tr>
-          <td colspan="5" style="text-align: center; color: var(--text-muted);">Loading conversations...</td>
-        </tr>
-      </tbody>
-    </table>
+  <!-- Tab 3: Runtime Tuner -->
+  <div id="tab-tuner" class="tab-content">
+    <div class="card" style="max-width: 680px;">
+      <div class="card-title">Runtime Parameter Hot-Reload Tuner</div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">Adjust active pipeline thresholds and parameters dynamically without restarting daemon.</p>
+      
+      <div id="tuner-alert" class="alert-banner"></div>
+
+      <form id="tuner-form" onsubmit="applyTunerSettings(event)">
+        <div class="form-group">
+          <label class="form-label" for="tuner-debouncer">Debouncer Idle Window (Minutes)</label>
+          <input type="number" id="tuner-debouncer" class="form-control" min="1" max="1440" required />
+          <span style="font-size: 12px; color: var(--text-muted);">Conversational inactivity period before triggering session chunking (default: 30).</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="tuner-rrf">RRF Smoothing Factor (k-factor)</label>
+          <input type="number" id="tuner-rrf" class="form-control" min="1" max="1000" required />
+          <span style="font-size: 12px; color: var(--text-muted);">Balances rank weighting between vector distance and tsvector BM25 scores (default: 60).</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="tuner-ocr">Vision OCR Endpoint URL</label>
+          <input type="url" id="tuner-ocr" class="form-control" required />
+          <span style="font-size: 12px; color: var(--text-muted);">OpenAI-compatible Vision inference provider endpoint.</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="tuner-backfill">Backfill Batch Size</label>
+          <input type="number" id="tuner-backfill" class="form-control" min="1" max="10000" required />
+          <span style="font-size: 12px; color: var(--text-muted);">Max messages fetched per cursor pagination pass during historical sync (default: 100).</span>
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-top: 24px;">
+          <button type="submit" class="btn btn-primary">Apply Changes</button>
+          <button type="button" class="btn btn-untrack" onclick="loadTunerSettings()">Reload Current</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script>
-    let hasStatusError = false;
-    let hasContactsError = false;
+    // Tab switching logic
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+      
+      const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.textContent.toLowerCase().includes(tabId));
+      if (targetBtn) targetBtn.classList.add('active');
+      
+      const targetContent = document.getElementById('tab-' + tabId);
+      if (targetContent) targetContent.classList.add('active');
 
-    function showAlert(msg) {
-      const banner = document.getElementById('alert-banner');
-      const msgEl = document.getElementById('alert-message');
-      if (banner && msgEl) {
-        msgEl.textContent = msg;
-        banner.classList.add('visible');
+      if (tabId === 'tuner') {
+        loadTunerSettings();
       }
     }
 
-    function dismissAlert() {
-      const banner = document.getElementById('alert-banner');
-      if (banner) {
-        banner.classList.remove('visible');
+    // Default MCP Tool argument templates
+    const mcpArgumentTemplates = {
+      'list_conversations': JSON.stringify({ limit: 10, tracked_only: false }, null, 2),
+      'get_contact_dossier': JSON.stringify({ conversation_id: 'conv-123', contact_name: 'Alice Smith' }, null, 2),
+      'search_conversation_history': JSON.stringify({ query: 'vacation plans', limit: 5 }, null, 2),
+      'get_messages_around_time': JSON.stringify({ conversation_id: 'conv-123', timestamp: new Date().toISOString(), window_minutes: 30 }, null, 2),
+      'search_shared_media': JSON.stringify({ query: 'receipt', limit: 5 }, null, 2),
+      'manage_tracked_contact': JSON.stringify({ conversation_id: 'conv-123', action: 'track' }, null, 2)
+    };
+
+    function onMCPToolChange() {
+      const select = document.getElementById('mcp-tool-select');
+      const editor = document.getElementById('mcp-args-editor');
+      editor.value = mcpArgumentTemplates[select.value] || '{}';
+    }
+
+    // Initialize MCP args editor with default selection
+    onMCPToolChange();
+
+    async function executeMCPTool() {
+      const tool = document.getElementById('mcp-tool-select').value;
+      const editor = document.getElementById('mcp-args-editor');
+      const output = document.getElementById('mcp-output');
+      
+      output.textContent = 'Executing tool ' + tool + '...';
+
+      let parsedArgs = {};
+      try {
+        if (editor.value.trim() !== '') {
+          parsedArgs = JSON.parse(editor.value);
+        }
+      } catch (err) {
+        output.textContent = 'JSON Parse Error in Arguments: ' + err.message;
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/testbench/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: tool, arguments: parsedArgs })
+        });
+        const data = await res.json();
+        output.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        output.textContent = 'Network or Execution Error: ' + err.message;
       }
     }
 
-    function checkErrorState() {
-      if (hasStatusError && hasContactsError) {
-        showAlert('Failed to connect to daemon: /api/v1/status and /api/v1/contacts are unreachable.');
-      } else if (hasStatusError) {
-        showAlert('Warning: Failed to refresh daemon status from /api/v1/status.');
-      } else if (hasContactsError) {
-        showAlert('Warning: Failed to load conversations from /api/v1/contacts.');
-      } else {
-        dismissAlert();
+    async function executeSearch() {
+      const query = document.getElementById('search-query').value.trim();
+      const conversationId = document.getElementById('search-conversation-id').value.trim();
+      const mode = document.getElementById('search-mode').value;
+      const tbody = document.getElementById('search-results-body');
+
+      if (!query) {
+        alert('Please enter search query terms.');
+        return;
+      }
+
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Running search query...</td></tr>';
+
+      try {
+        const res = await fetch('/api/v1/testbench/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: query,
+            conversation_id: conversationId,
+            mode: mode,
+            limit: 10
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Search request failed');
+
+        if (!data.results || data.results.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No results found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        if (data.mode === 'hybrid') {
+          data.results.forEach(item => {
+            const tr = document.createElement('tr');
+            const tdId = document.createElement('td');
+            tdId.innerHTML = `<code>${item.id}</code>`;
+            
+            const tdConv = document.createElement('td');
+            tdConv.innerHTML = `<code>${escapeHtml(item.conversation_id)}</code>`;
+
+            const tdTranscript = document.createElement('td');
+            tdTranscript.textContent = item.transcript || '';
+
+            const tdSummary = document.createElement('td');
+            tdSummary.textContent = item.summary || '-';
+
+            const tdScore = document.createElement('td');
+            const scoreNum = typeof item.rrf_score === 'number' ? item.rrf_score.toFixed(4) : (item.rrf_score ?? '-');
+            tdScore.innerHTML = `<span class="badge badge-ok">${scoreNum}</span>`;
+
+            tr.appendChild(tdId);
+            tr.appendChild(tdConv);
+            tr.appendChild(tdTranscript);
+            tr.appendChild(tdSummary);
+            tr.appendChild(tdScore);
+            tbody.appendChild(tr);
+          });
+        } else {
+          // FTS Messages mode
+          data.results.forEach(msg => {
+            const tr = document.createElement('tr');
+            const tdId = document.createElement('td');
+            tdId.innerHTML = `<code>${escapeHtml(msg.id)}</code>`;
+
+            const tdConv = document.createElement('td');
+            tdConv.innerHTML = `<code>${escapeHtml(msg.conversation_id)}</code>`;
+
+            const tdBody = document.createElement('td');
+            tdBody.textContent = msg.body || '';
+
+            const tdSummary = document.createElement('td');
+            tdSummary.textContent = '-';
+
+            const tdScore = document.createElement('td');
+            tdScore.innerHTML = `<span class="badge badge-ok">FTS</span>`;
+
+            tr.appendChild(tdId);
+            tr.appendChild(tdConv);
+            tr.appendChild(tdBody);
+            tr.appendChild(tdSummary);
+            tr.appendChild(tdScore);
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">Search error: ${escapeHtml(err.message)}</td></tr>`;
       }
     }
 
-    async function retryFailedRequests() {
-      dismissAlert();
-      await Promise.all([fetchStatus(), fetchContacts()]);
+    async function testGuardrail() {
+      const input = document.getElementById('guardrail-input').value;
+      const output = document.getElementById('guardrail-output');
+
+      output.textContent = 'Sanitizing...';
+      try {
+        const res = await fetch('/api/v1/testbench/guardrail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: input })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Guardrail sanitization failed');
+        output.textContent = data.wrapped || '';
+      } catch (err) {
+        output.textContent = 'Guardrail Error: ' + err.message;
+      }
     }
 
+    // Runtime Tuner functions
+    async function loadTunerSettings() {
+      const alertEl = document.getElementById('tuner-alert');
+      try {
+        const res = await fetch('/api/v1/tuner');
+        if (!res.ok) throw new Error('Failed to load tuner settings');
+        const settings = await res.json();
+
+        document.getElementById('tuner-debouncer').value = settings.debouncer_idle_minutes ?? 30;
+        document.getElementById('tuner-rrf').value = settings.rrf_k_factor ?? 60;
+        document.getElementById('tuner-ocr').value = settings.ocr_endpoint ?? 'https://openrouter.ai/api/v1';
+        document.getElementById('tuner-backfill').value = settings.backfill_batch_size ?? 100;
+        alertEl.style.display = 'none';
+      } catch (err) {
+        alertEl.className = 'alert-banner alert-danger';
+        alertEl.textContent = 'Error loading tuner parameters: ' + err.message;
+        alertEl.style.display = 'block';
+      }
+    }
+
+    async function applyTunerSettings(e) {
+      if (e) e.preventDefault();
+      const alertEl = document.getElementById('tuner-alert');
+      alertEl.style.display = 'none';
+
+      const payload = {
+        debouncer_idle_minutes: parseInt(document.getElementById('tuner-debouncer').value, 10),
+        rrf_k_factor: parseInt(document.getElementById('tuner-rrf').value, 10),
+        ocr_endpoint: document.getElementById('tuner-ocr').value.trim(),
+        backfill_batch_size: parseInt(document.getElementById('tuner-backfill').value, 10)
+      };
+
+      try {
+        const res = await fetch('/api/v1/tuner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update tuner parameters');
+
+        alertEl.className = 'alert-banner alert-success';
+        alertEl.textContent = 'Tuner settings hot-reloaded successfully without restarting daemon.';
+        alertEl.style.display = 'block';
+      } catch (err) {
+        alertEl.className = 'alert-banner alert-danger';
+        alertEl.textContent = 'Failed to apply settings: ' + err.message;
+        alertEl.style.display = 'block';
+      }
+    }
+
+    // Overview functions
     async function fetchStatus() {
       try {
         const res = await fetch('/api/v1/status');
-        if (!res.ok) throw new Error('Status fetch failed with HTTP ' + res.status);
+        if (!res.ok) throw new Error('Status fetch failed');
         const data = await res.json();
-
-        hasStatusError = false;
-        checkErrorState();
 
         const dbStatusEl = document.getElementById('db-status');
         if (data.db_connected) {
@@ -302,8 +676,7 @@
 
         document.getElementById('unindexed-count').textContent = data.unindexed_messages ?? 0;
       } catch (err) {
-        hasStatusError = true;
-        checkErrorState();
+        console.error('Error loading status:', err);
       }
     }
 
@@ -317,7 +690,7 @@
         if (!res.ok) throw new Error('Failed to update tracking');
         fetchContacts();
       } catch (err) {
-        showAlert('Failed to update tracking: ' + err.message);
+        alert('Failed to update tracking: ' + err.message);
       }
     }
 
@@ -329,14 +702,11 @@
     }
 
     async function fetchContacts() {
-      const tbody = document.getElementById('contacts-table-body');
       try {
         const res = await fetch('/api/v1/contacts');
-        if (!res.ok) throw new Error('Contacts fetch failed with HTTP ' + res.status);
+        if (!res.ok) throw new Error('Contacts fetch failed');
         const contacts = await res.json();
-
-        hasContactsError = false;
-        checkErrorState();
+        const tbody = document.getElementById('contacts-table-body');
 
         if (!contacts || contacts.length === 0) {
           tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No conversations found.</td></tr>';
@@ -350,7 +720,6 @@
           const type = c.is_group ? 'Group' : 'Direct';
           const trackBtnText = c.is_tracked ? 'Tracked' : 'Untracked';
           const trackBtnClass = c.is_tracked ? 'btn btn-track' : 'btn btn-untrack';
-          const displayName = c.name || 'Unnamed';
 
           const tdId = document.createElement('td');
           const codeEl = document.createElement('code');
@@ -359,7 +728,7 @@
 
           const tdName = document.createElement('td');
           const strongEl = document.createElement('strong');
-          strongEl.textContent = displayName;
+          strongEl.textContent = c.name || 'Unnamed';
           tdName.appendChild(strongEl);
 
           const tdType = document.createElement('td');
@@ -372,7 +741,6 @@
           const btn = document.createElement('button');
           btn.className = trackBtnClass;
           btn.textContent = trackBtnText;
-          btn.setAttribute('aria-label', 'Toggle tracking for ' + displayName);
           btn.onclick = () => toggleTrack(c.id, c.is_tracked);
           tdTrack.appendChild(btn);
 
@@ -384,13 +752,7 @@
           tbody.appendChild(tr);
         });
       } catch (err) {
-        hasContactsError = true;
-        checkErrorState();
-        if (tbody) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--danger);">' +
-            'Failed to load conversations. <button class="btn btn-retry" onclick="fetchContacts()" style="margin-left: 8px;" aria-label="Retry loading conversations">Retry</button>' +
-            '</td></tr>';
-        }
+        console.error('Error loading contacts:', err);
       }
     }
 

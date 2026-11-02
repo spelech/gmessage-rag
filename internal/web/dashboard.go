@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/spelech/gmessage-rag/internal/config"
 	"github.com/spelech/gmessage-rag/internal/db"
 	"github.com/spelech/gmessage-rag/internal/gm"
 )
@@ -25,13 +26,26 @@ func NewDashboard(database *db.DB, gmClient *gm.Client) http.Handler {
 // - POST /api/v1/contacts/track
 // - GET /pair (QR pairing visualization via gm.NewPairingHandler)
 func NewDashboardHandler(database *db.DB, gmClient *gm.Client) http.Handler {
+	return NewDashboardHandlerWithTuner(database, gmClient, nil)
+}
+
+// NewDashboardHandlerWithTuner constructs an http.Handler with an optional RuntimeTuner that routes:
+// - GET / and GET /dashboard to the embedded dashboard UI
+// - GET /api/v1/status
+// - GET /api/v1/contacts
+// - POST /api/v1/contacts/track
+// - GET /api/v1/tuner
+// - POST /api/v1/tuner
+// - GET /pair (QR pairing visualization via gm.NewPairingHandler)
+func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner) http.Handler {
 	mux := http.NewServeMux()
-	api := NewAPIHandler(database, gmClient)
+	api := NewAPIHandlerWithTuner(database, gmClient, tuner)
 
 	// API endpoints
 	mux.HandleFunc("/api/v1/status", api.HandleStatus)
 	mux.HandleFunc("/api/v1/contacts", api.HandleContacts)
 	mux.HandleFunc("/api/v1/contacts/track", api.HandleTrackContact)
+	mux.HandleFunc("/api/v1/tuner", api.HandleTuner)
 
 	// Pairing QR visualization endpoint
 	if gmClient != nil {

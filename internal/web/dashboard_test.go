@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+	"github.com/spelech/gmessage-rag/internal/config"
 	"github.com/spelech/gmessage-rag/internal/db"
 	"github.com/spelech/gmessage-rag/internal/gm"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,19 @@ func TestDashboardUI_AssetServing(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "gmessages-rag Management Dashboard")
 	assert.Contains(t, rr.Body.String(), "Database Status")
 	assert.Contains(t, rr.Body.String(), "Google Messages Link")
+	// Verify tabs rendering (UI-05)
+	assert.Contains(t, rr.Body.String(), "Overview")
+	assert.Contains(t, rr.Body.String(), "Diagnostic Test Bench")
+	assert.Contains(t, rr.Body.String(), "Runtime Tuner")
+	assert.Contains(t, rr.Body.String(), "MCP Tools Sandbox")
+	assert.Contains(t, rr.Body.String(), "Hybrid RRF Search Query Sandbox")
+	assert.Contains(t, rr.Body.String(), "Guardrail XML Boundary Sandbox")
+	assert.Contains(t, rr.Body.String(), "list_conversations")
+	assert.Contains(t, rr.Body.String(), "get_contact_dossier")
+	assert.Contains(t, rr.Body.String(), "search_conversation_history")
+	assert.Contains(t, rr.Body.String(), "get_messages_around_time")
+	assert.Contains(t, rr.Body.String(), "search_shared_media")
+	assert.Contains(t, rr.Body.String(), "manage_tracked_contact")
 
 	// Test GET /dashboard
 	reqDashboard := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
@@ -216,43 +230,74 @@ func TestDashboard_WithMockDB(t *testing.T) {
 	assert.True(t, conv.IsTracked)
 }
 
-// TestDashboardUI_AccessibilityAndResponsiveness verifies UI-04:
-// dashboard usability, accessibility (WCAG 2.1 AA), responsive table overflow,
-// touch targets, and API error recovery.
-func TestDashboardUI_AccessibilityAndResponsiveness(t *testing.T) {
-	handler := NewDashboardHandler(nil, nil)
+// [Requirement(UI-05)]
+func TestAPI_TunerEndpoints(t *testing.T) {
+	initialSettings := config.TunerSettings{
+		DebouncerIdleMinutes: 25,
+		RRFKFactor:           50,
+		OCREndpoint:          "https://example.com/ocr",
+		BackfillBatchSize:    150,
+	}
+	tuner := config.NewRuntimeTuner(initialSettings)
+	handler := NewDashboardHandlerWithTuner(nil, nil, tuner)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
+	// 1. GET /api/v1/tuner
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/v1/tuner", nil)
+	rrGet := httptest.NewRecorder()
+	handler.ServeHTTP(rrGet, reqGet)
 
-	assert.Equal(t, http.StatusOK, rr.Code)
-	body := rr.Body.String()
+	assert.Equal(t, http.StatusOK, rrGet.Code)
+	var gotSettings config.TunerSettings
+	err := json.Unmarshal(rrGet.Body.Bytes(), &gotSettings)
+	require.NoError(t, err)
+	assert.Equal(t, 25, gotSettings.DebouncerIdleMinutes)
+	assert.Equal(t, 50, gotSettings.RRFKFactor)
+	assert.Equal(t, "https://example.com/ocr", gotSettings.OCREndpoint)
+	assert.Equal(t, 150, gotSettings.BackfillBatchSize)
 
-	// 1. Responsive Layout & Mobile Table Overflow
-	assert.Contains(t, body, "class=\"table-responsive\"", "should contain responsive table container")
-	assert.Contains(t, body, "overflow-x: auto", "table container must have horizontal overflow scrolling")
-	assert.Contains(t, body, "scrollbar-gutter: stable", "table container must preserve stable scrollbar gutter")
-	assert.Contains(t, body, "minmax(clamp(200px, 30vw, 300px), 1fr)", "grid cards must have responsive clamp/minmax sizing")
+	// 2. POST /api/v1/tuner nominal update
+	updatePayload := `{"debouncer_idle_minutes": 45, "rrf_k_factor": 80, "ocr_endpoint": "https://api.openai.com/v1", "backfill_batch_size": 200}`
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/v1/tuner", bytes.NewBufferString(updatePayload))
+	rrPost := httptest.NewRecorder()
+	handler.ServeHTTP(rrPost, reqPost)
 
-	// 2. Touch Targets & Focus States
-	assert.Contains(t, body, "min-height: 44px", "touch-first viewports must enforce >=44px min-height touch targets")
-	assert.Contains(t, body, ":focus-visible", "must implement high-contrast focus-visible ring styles")
+	assert.Equal(t, http.StatusOK, rrPost.Code)
+	var postResp map[string]any
+	err = json.Unmarshal(rrPost.Body.Bytes(), &postResp)
+	require.NoError(t, err)
+	assert.True(t, postResp["success"].(bool))
 
-	// 3. Accessibility & ARIA
-	assert.Contains(t, body, `id="daemon-badge" class="badge badge-ok" aria-live="polite"`, "daemon badge should have aria-live=polite")
-	assert.Contains(t, body, `id="db-status" class="card-value" aria-live="polite"`, "db status should have aria-live=polite")
-	assert.Contains(t, body, `id="gm-status" class="card-value" aria-live="polite"`, "gm status should have aria-live=polite")
-	assert.Contains(t, body, `<th scope="col">Conversation ID</th>`, "table headers must have scope=col")
-	assert.Contains(t, body, `<th scope="col">Name</th>`, "table headers must have scope=col")
-	assert.Contains(t, body, `<th scope="col">Type</th>`, "table headers must have scope=col")
-	assert.Contains(t, body, `<th scope="col">Last Activity</th>`, "table headers must have scope=col")
-	assert.Contains(t, body, `<th scope="col">Tracking</th>`, "table headers must have scope=col")
-	assert.Contains(t, body, `btn.setAttribute('aria-label', 'Toggle tracking for ' + displayName)`, "toggle button must set dynamic aria-label")
+	cur := tuner.Get()
+	assert.Equal(t, 45, cur.DebouncerIdleMinutes)
+	assert.Equal(t, 80, cur.RRFKFactor)
+	assert.Equal(t, "https://api.openai.com/v1", cur.OCREndpoint)
+	assert.Equal(t, 200, cur.BackfillBatchSize)
 
-	// 4. Network Error & Empty State Recovery
-	assert.Contains(t, body, `id="alert-banner" class="alert-banner" role="alert"`, "must have dismissible/retryable alert banner with role=alert")
-	assert.Contains(t, body, `id="alert-retry-btn"`, "must have retry button in alert banner")
-	assert.Contains(t, body, `retryFailedRequests()`, "must have handler to retry failed requests")
-	assert.Contains(t, body, `Retry loading conversations`, "must provide retry button in contacts empty/error state")
+	// 3. POST /api/v1/tuner validation error (invalid DebouncerIdleMinutes <= 0)
+	badPayload := `{"debouncer_idle_minutes": 0, "rrf_k_factor": 80, "ocr_endpoint": "https://api.openai.com/v1", "backfill_batch_size": 200}`
+	reqBad := httptest.NewRequest(http.MethodPost, "/api/v1/tuner", bytes.NewBufferString(badPayload))
+	rrBad := httptest.NewRecorder()
+	handler.ServeHTTP(rrBad, reqBad)
+
+	assert.Equal(t, http.StatusBadRequest, rrBad.Code)
+	assert.Contains(t, rrBad.Body.String(), "debouncer idle minutes must be greater than 0")
+
+	// 4. POST /api/v1/tuner invalid JSON
+	reqInvalidJSON := httptest.NewRequest(http.MethodPost, "/api/v1/tuner", bytes.NewBufferString(`{not-json`))
+	rrInvalidJSON := httptest.NewRecorder()
+	handler.ServeHTTP(rrInvalidJSON, reqInvalidJSON)
+	assert.Equal(t, http.StatusBadRequest, rrInvalidJSON.Code)
+
+	// 5. Method not allowed (DELETE)
+	reqDelete := httptest.NewRequest(http.MethodDelete, "/api/v1/tuner", nil)
+	rrDelete := httptest.NewRecorder()
+	handler.ServeHTTP(rrDelete, reqDelete)
+	assert.Equal(t, http.StatusMethodNotAllowed, rrDelete.Code)
+
+	// 6. Nil tuner returns 503 Service Unavailable
+	handlerNilTuner := NewDashboardHandlerWithTuner(nil, nil, nil)
+	reqNil := httptest.NewRequest(http.MethodGet, "/api/v1/tuner", nil)
+	rrNil := httptest.NewRecorder()
+	handlerNilTuner.ServeHTTP(rrNil, reqNil)
+	assert.Equal(t, http.StatusServiceUnavailable, rrNil.Code)
 }

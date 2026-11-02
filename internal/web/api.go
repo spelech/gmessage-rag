@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/spelech/gmessage-rag/internal/config"
 	"github.com/spelech/gmessage-rag/internal/db"
 	"github.com/spelech/gmessage-rag/internal/gm"
 )
@@ -28,6 +29,7 @@ type TrackContactRequest struct {
 type APIHandler struct {
 	database *db.DB
 	gmClient *gm.Client
+	tuner    *config.RuntimeTuner
 }
 
 // NewAPI is an alias for NewAPIHandler.
@@ -37,9 +39,15 @@ func NewAPI(database *db.DB, gmClient *gm.Client) *APIHandler {
 
 // NewAPIHandler constructs a new APIHandler.
 func NewAPIHandler(database *db.DB, gmClient *gm.Client) *APIHandler {
+	return NewAPIHandlerWithTuner(database, gmClient, nil)
+}
+
+// NewAPIHandlerWithTuner constructs a new APIHandler with an optional RuntimeTuner.
+func NewAPIHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner) *APIHandler {
 	return &APIHandler{
 		database: database,
 		gmClient: gmClient,
+		tuner:    tuner,
 	}
 }
 
@@ -161,4 +169,45 @@ func (h *APIHandler) HandleTrackContact(w http.ResponseWriter, r *http.Request) 
 		"is_tracked":      req.IsTracked,
 		"success":         true,
 	})
+}
+
+// HandleTuner handles GET /api/v1/tuner and POST /api/v1/tuner.
+func (h *APIHandler) HandleTuner(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if h.tuner == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "runtime tuner not configured"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		settings := h.tuner.Get()
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(settings)
+
+	case http.MethodPost:
+		var newSettings config.TunerSettings
+		if err := json.NewDecoder(r.Body).Decode(&newSettings); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid json payload: " + err.Error()})
+			return
+		}
+
+		if err := h.tuner.Update(newSettings); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success":  true,
+			"settings": h.tuner.Get(),
+		})
+
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
 }

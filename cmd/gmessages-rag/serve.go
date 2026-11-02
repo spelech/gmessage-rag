@@ -35,6 +35,7 @@ type DaemonServer struct {
 	Debouncer  *pipeline.SmartDebouncer
 	Metrics    *obs.Metrics
 	MCPServer  *mcpserver.Server
+	Tuner      *config.RuntimeTuner
 	HTTPServer *http.Server
 	RootMux    *http.ServeMux
 	Logger     zerolog.Logger
@@ -42,6 +43,11 @@ type DaemonServer struct {
 
 // BuildServeMux constructs the root http.ServeMux with all routes registered.
 func BuildServeMux(database *db.DB, gmClient *gm.Client, mcpSrv *mcpserver.Server, metrics *obs.Metrics) *http.ServeMux {
+	return BuildServeMuxWithTuner(database, gmClient, mcpSrv, metrics, nil)
+}
+
+// BuildServeMuxWithTuner constructs the root http.ServeMux with optional RuntimeTuner wired in.
+func BuildServeMuxWithTuner(database *db.DB, gmClient *gm.Client, mcpSrv *mcpserver.Server, metrics *obs.Metrics, tuner *config.RuntimeTuner) *http.ServeMux {
 	rootMux := http.NewServeMux()
 
 	// 1. Prometheus metrics: /metrics
@@ -65,7 +71,7 @@ func BuildServeMux(database *db.DB, gmClient *gm.Client, mcpSrv *mcpserver.Serve
 	tbHandler.RegisterRoutes(rootMux)
 
 	// 5. Web UI Dashboard and API: /, /dashboard, /pair, /api/v1/*
-	dashHandler := web.NewDashboard(database, gmClient)
+	dashHandler := web.NewDashboardHandlerWithTuner(database, gmClient, tuner)
 	rootMux.Handle("/", dashHandler)
 
 	return rootMux
@@ -123,11 +129,7 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	logger := log.With().Str("component", "daemon").Logger()
@@ -178,12 +180,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer debouncer.Close()
 
 	// 6. Initialize Google Messages client
-	sessionPath := os.Getenv("SESSION_PATH")
-	if sessionPath == "" {
-		sessionPath = "/data/auth/session.json"
-	}
 	gmClient, err := gm.NewClient(gm.ClientOptions{
-		SessionPath: sessionPath,
+		SessionPath: "/data/auth/session.json",
 		Logger:      logger.With().Str("component", "libgm").Logger(),
 		OnConversationActive: func(conversationID string) {
 			debouncer.RecordEvent(conversationID, pipeline.EventInboundMessage)
@@ -201,7 +199,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		logger.Warn().Msg("Google Messages session is not paired. Run 'pair' or navigate to /pair to authenticate.")
 	}
 
-	// 7. Initialize Metrics, MCP Server, and Root Mux
+	// 7. Initialize Metrics, MCP Server, Runtime Tuner, and Root Mux
 	metrics := obs.NewMetricsRegistry()
 	mcpServer := mcpserver.NewServer(mcpserver.ServerOptions{
 		Name:              "gmessages-rag",
@@ -209,7 +207,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		EnableSendMessage: cfg.EnableMCPSendMessage,
 	})
 
-	rootMux := BuildServeMux(database, gmClient, mcpServer, metrics)
+	tuner := config.NewRuntimeTuner(config.TunerSettings{
+		DebouncerIdleMinutes: cfg.DossierDebounceMinutes,
+		RRFKFactor:           config.DefaultRRFKFactor,
+		OCREndpoint:          cfg.LLMBaseURL,
+		BackfillBatchSize:    cfg.MaxBackfillMessages,
+	})
+
+	rootMux := BuildServeMuxWithTuner(database, gmClient, mcpServer, metrics, tuner)
 
 	// 8. Start background batch ETL pipeline for any tracked contacts
 	StartETLForTrackedContacts(ctx, logger, database, gmClient, cfg.TrackedContacts, cfg.MaxBackfillMessages)

@@ -377,3 +377,30 @@ func TestTestBench_NilDependenciesFailGracefully(t *testing.T) {
 		t.Fatalf("expected HTTP 500 when database is nil, got %d", recSearch.Code)
 	}
 }
+
+// [Requirement(UI-05)]
+func TestTestBench_RouteIntegrationWithDashboard(t *testing.T) {
+	mcp := mcpserver.NewServer(mcpserver.ServerOptions{})
+	mockDB := &mockSearchDB{}
+	tbHandler := web.NewTestBenchHandler(mcp, mockDB)
+
+	dashMux := http.NewServeMux()
+	tbHandler.RegisterRoutes(dashMux)
+	dashHandler := web.NewDashboardHandler(nil, nil)
+	dashMux.Handle("/", dashHandler)
+
+	// Verify both dashboard and testbench endpoints route cleanly on unified mux
+	reqUI := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	recUI := httptest.NewRecorder()
+	dashMux.ServeHTTP(recUI, reqUI)
+	if recUI.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /dashboard, got %d", recUI.Code)
+	}
+
+	reqGuard := httptest.NewRequest(http.MethodPost, "/api/v1/testbench/guardrail", strings.NewReader(`{"text":"hello"}`))
+	recGuard := httptest.NewRecorder()
+	dashMux.ServeHTTP(recGuard, reqGuard)
+	if recGuard.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/v1/testbench/guardrail, got %d", recGuard.Code)
+	}
+}
