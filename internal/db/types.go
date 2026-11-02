@@ -45,3 +45,25 @@ type Message struct {
 	IsBackfill       bool       `json:"is_backfill"`
 	CreatedAt        time.Time  `json:"created_at"`
 }
+
+// ContactDossier represents a living dossier record for a contact.
+type ContactDossier struct {
+	ConversationID         string         `json:"conversation_id"`
+	ContactName            string         `json:"contact_name"`
+	MarkdownContent        string         `json:"markdown_content"`
+	StructuredState        map[string]any `json:"structured_state"`
+	LastProcessedMessageAt *time.Time     `json:"last_processed_message_at,omitempty"`
+	Version                int            `json:"version"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+}
+
+// ContactDossierHistory represents an audit snapshot of a previous contact dossier state.
+type ContactDossierHistory struct {
+	ID               int64          `json:"id"`
+	ConversationID   string         `json:"conversation_id"`
+	Version          int            `json:"version"`
+	MarkdownContent  string         `json:"markdown_content"`
+	StructuredState  map[string]any `json:"structured_state"`
+	TriggerSessionID *int64         `json:"trigger_session_id,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
+}
