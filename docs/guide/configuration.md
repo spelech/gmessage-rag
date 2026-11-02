@@ -37,3 +37,21 @@ All settings can be specified via environment variables or a `.env` file.
 | `ENABLE_MCP_SEND_MESSAGE` | bool | `false` | Fail-closed guard: enables outbound `send_message` tool |
 | `NOTIFY_ON_PHONE_DISCONNECT` | bool | `false` | Sends push alerts on phone disconnect |
 | `NOTIFY_PHONE_DISCONNECT_GRACE_MINUTES` | int | `15` | Debounce window before alerting on disconnect |
+
+## Testing & Live Verification (HARN-03)
+
+The default test run is **hermetic**. The `internal/gm` package installs a deny-all HTTP
+transport through the `libgm` constructor seam, so any accidental outbound request fails
+the run with a `hermetic network guard (HARN-03)` error.
+
+| Command | Purpose | Network |
+| :--- | :--- | :--- |
+| `make test` | Hermetic unit, boundary, and race suite | **Blocked** |
+| `make test-live` | Real Google registration / Gaia pairing smoke tests | Required |
+| `make test-live-compile` | Compile-checks the `live`-tagged tests without running them | Not used |
+
+**Test-only environment variables** (never required at runtime):
+
+- `GM_ALLOW_NETWORK=1` — disables the hermetic guard so live tests can reach the network.
+- `LIVE_GM_TEST=1` — explicit opt-in gate for tests tagged `//go:build live`.
+- `SESSION_PATH` — session file used by the live pairing test (avoids clobbering the daemon session).

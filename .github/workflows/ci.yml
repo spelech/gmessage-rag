@@ -74,8 +74,13 @@ jobs:
 
       - name: Run Tests with Race Detector & Coverage
         run: |
+          # HARN-03: the `gm` package installs a deny-all network transport by default,
+          # so this suite is hermetic and requires zero outbound network access.
           go test -v -race -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out
+
+      - name: Compile-Check Live-Tagged Tests (No Execution)
+        run: go vet -tags live ./...
 
   container-build:
     name: "Stage 3: Container Immutability & Build Verification"
