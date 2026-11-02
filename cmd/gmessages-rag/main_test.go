@@ -28,9 +28,9 @@ func TestCLI_RootCommandFlags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "pair", cmd.Name())
 
-	gaiaFlagVal := cmd.Flags().Lookup("gaia")
-	require.NotNil(t, gaiaFlagVal)
-	assert.Equal(t, "false", gaiaFlagVal.DefValue)
+	qrFlagVal := cmd.Flags().Lookup("qr")
+	require.NotNil(t, qrFlagVal)
+	assert.Equal(t, "false", qrFlagVal.DefValue)
 
 	serveFind, _, err := rootCmd.Find([]string{"serve"})
 	require.NoError(t, err)
@@ -118,18 +118,17 @@ func TestPairCommand_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// 1. Test pairCmd with standard QR mode under immediate context cancellation
+	// 1. Test pairCmd with default Gaia mode under immediate context cancellation
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
-	gaiaFlag = false
+	qrFlag = false
 
-	// Test runPair directly with an invalid session path or unresolvable server
 	err := runPair(cmd, nil)
 	assert.Error(t, err)
 }
 
-// TestPairCommand_GaiaErrorHandling tests gaiaFlag error handling.
-func TestPairCommand_GaiaErrorHandling(t *testing.T) {
+// TestPairCommand_QRErrorHandling tests qrFlag error handling.
+func TestPairCommand_QRErrorHandling(t *testing.T) {
 	tempDir := t.TempDir()
 	sessionFile := filepath.Join(tempDir, "session.json")
 	t.Setenv("SESSION_PATH", sessionFile)
@@ -137,8 +136,8 @@ func TestPairCommand_GaiaErrorHandling(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	gaiaFlag = true
-	defer func() { gaiaFlag = false }()
+	qrFlag = true
+	defer func() { qrFlag = false }()
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
@@ -231,7 +230,7 @@ func TestPairCommand_DefaultSessionPath(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
-	gaiaFlag = false
+	qrFlag = false
 	_ = runPair(cmd, nil)
 }
 
@@ -261,25 +260,25 @@ func TestRootCmd_ExecuteHelp(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestPairCommand_InitClientFailure tests pairing client initialization error when session path is invalid.
-func TestPairCommand_InitClientFailure(t *testing.T) {
-	t.Setenv("SESSION_PATH", t.TempDir())
-	cmd := &cobra.Command{}
-	gaiaFlag = false
-	err := runPair(cmd, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to initialize pairing client")
-}
-
-// TestPairCommand_InitGaiaFailure tests gaia client initialization error when session path is invalid.
+// TestPairCommand_InitGaiaFailure tests gaia client initialization error when session path is invalid (default mode).
 func TestPairCommand_InitGaiaFailure(t *testing.T) {
 	t.Setenv("SESSION_PATH", t.TempDir())
 	cmd := &cobra.Command{}
-	gaiaFlag = true
-	defer func() { gaiaFlag = false }()
+	qrFlag = false
 	err := runPair(cmd, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to initialize gaia client")
+}
+
+// TestPairCommand_InitQRClientFailure tests pairing client initialization error when legacy QR flag is passed.
+func TestPairCommand_InitQRClientFailure(t *testing.T) {
+	t.Setenv("SESSION_PATH", t.TempDir())
+	cmd := &cobra.Command{}
+	qrFlag = true
+	defer func() { qrFlag = false }()
+	err := runPair(cmd, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to initialize pairing client")
 }
 
 // TestServeCommand_GMClientInitFailure verifies error returned when GM client fails initialization.

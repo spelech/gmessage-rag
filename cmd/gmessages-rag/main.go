@@ -23,12 +23,12 @@ var serveCmd = &cobra.Command{
 
 var pairCmd = &cobra.Command{
 	Use:   "pair",
-	Short: "Initiate Google Messages QR pairing via terminal or Gaia emoji challenge",
+	Short: "Initiate Google Messages pairing via Gaia emoji challenge (default) or legacy QR",
 	RunE:  runPair,
 }
 
 func init() {
-	pairCmd.Flags().BoolVar(&gaiaFlag, "gaia", false, "Use Google Account (Gaia) emoji challenge pairing without QR camera scan (AUTH-04)")
+	pairCmd.Flags().BoolVar(&qrFlag, "qr", false, "Use legacy QR code terminal pairing instead of Google Account emoji challenge (AUTH-05)")
 
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(pairCmd)

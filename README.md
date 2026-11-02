@@ -19,7 +19,7 @@
 ## Key Capabilities
 
 1. **Matrix-Free Real-Time RCS/SMS Sync:**
-   - Pairs via terminal QR (`gmessages-rag pair`), live web QR (`GET /pair`), or single-device Google Account emoji challenge (`gmessages-rag pair --gaia`, `AUTH-04`).
+   - Pairs via default single-device Google Account emoji challenge (`gmessages-rag pair`, `GET /pair`, `AUTH-05`) or legacy QR fallback (`--qr`, `?mode=qr`, `AUTH-02`).
    - Ingests incoming/outgoing messages, emoji reactions, and reply chains into PostgreSQL 17.
    - Paginates historical message backfills via standardized 3-stage batch ETL (`PIPE-06`).
 2. **Content-Addressed Media & Vision OCR Pipeline:**
@@ -95,23 +95,23 @@ docker compose logs -f gmessages-rag
 
 ### 3. Pair with Google Messages
 
-#### Option A: Single-Device Gaia Emoji Pairing (No Camera Scanning - Recommended)
+#### Option A: Single-Device Gaia Emoji Pairing (Default & Recommended - AUTH-05)
 If pairing from a single mobile device or remote terminal:
 ```bash
-# Terminal execution
-docker compose exec -it gmessages-rag gmessages-rag pair --gaia
+# Terminal execution (defaults to Gaia emoji flow)
+docker compose exec -it gmessages-rag gmessages-rag pair
 
-# Or open in your browser
-# http://localhost:8090/pair/gaia
+# Or open in your browser (defaults to Gaia emoji challenge)
+# http://localhost:8090/pair
 ```
 The daemon requests a pairing challenge and prints an emoji (e.g. 🚀). Open Google Messages on your phone, go to **Device Pairing**, and tap the matching emoji.
 
-#### Option B: Live Web Browser QR Visualizer
-Open [http://localhost:8090/pair](http://localhost:8090/pair) in your web browser. Open Google Messages on your Android phone, select **Device Pairing -> QR code scanner**, and scan the QR code displayed on screen.
+#### Option B: Legacy Web Browser QR Visualizer
+Open [http://localhost:8090/pair?mode=qr](http://localhost:8090/pair?mode=qr) in your web browser. Open Google Messages on your Android phone, select **Device Pairing -> QR code scanner**, and scan the QR code displayed on screen.
 
-#### Option C: Terminal QR Code
+#### Option C: Legacy Terminal QR Code
 ```bash
-docker compose exec -it gmessages-rag gmessages-rag pair
+docker compose exec -it gmessages-rag gmessages-rag pair --qr
 ```
 
 ---
