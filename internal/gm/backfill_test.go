@@ -18,9 +18,11 @@ type mockMessageFetcher struct {
 	pages       map[string]*gmproto.ListMessagesResponse
 	fetchErr    error
 	fetchErrKey string
+	fetchCalls  int
 }
 
 func (m *mockMessageFetcher) FetchMessages(ctx context.Context, conversationID string, count int64, cursor []byte) (*gmproto.ListMessagesResponse, error) {
+	m.fetchCalls++
 	key := string(cursor)
 	if m.fetchErr != nil && (m.fetchErrKey == "" || m.fetchErrKey == key) {
 		return nil, m.fetchErr
@@ -201,6 +203,7 @@ func TestBackfill_RichMessageParsing(t *testing.T) {
 	ctx := context.Background()
 
 	convID := fmt.Sprintf("test-conv-rich-%d", time.Now().UnixNano())
+	msgID := fmt.Sprintf("msg-rich-%d", time.Now().UnixNano())
 	conv := &db.Conversation{
 		ID:        convID,
 		Name:      "Rich Test Contact",
@@ -217,7 +220,7 @@ func TestBackfill_RichMessageParsing(t *testing.T) {
 				Messages: []*gmproto.Message{
 					nil, // Nil message should be skipped safely
 					{
-						MessageID:      "msg-rich-001",
+						MessageID:      msgID,
 						ConversationID: convID,
 						Timestamp:      time.Now().Add(-1 * time.Hour).UnixMicro(),
 						MessageStatus: &gmproto.MessageStatus{
@@ -262,7 +265,7 @@ func TestBackfill_RichMessageParsing(t *testing.T) {
 	messages, err := database.GetUnassignedMessages(ctx, convID)
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
-	assert.Equal(t, "msg-rich-001", messages[0].ID)
+	assert.Equal(t, msgID, messages[0].ID)
 	assert.True(t, messages[0].IsFromMe)
 	assert.Equal(t, &replyID, messages[0].ReplyToMessageID)
 	assert.Len(t, messages[0].Reactions, 1)
