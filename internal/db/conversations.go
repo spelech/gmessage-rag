@@ -219,3 +219,30 @@ WHERE id = $1;
 	}
 	return nil
 }
+
+// UpdateConversationBackfillCursor updates the backfill cursor for a conversation.
+func (d *DB) UpdateConversationBackfillCursor(ctx context.Context, conversationID string, cursor *string) error {
+	if d == nil || d.Pool == nil {
+		return errors.New("database pool is not initialized")
+	}
+	if conversationID == "" {
+		return errors.New("conversationID cannot be empty")
+	}
+
+	const updateCursorSQL = `
+UPDATE conversations
+SET backfill_cursor = $2,
+    updated_at = NOW()
+WHERE id = $1;
+`
+
+	tag, err := d.Pool.Exec(ctx, updateCursorSQL, conversationID, cursor)
+	if err != nil {
+		return fmt.Errorf("update conversation backfill_cursor: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
