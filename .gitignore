@@ -25,7 +25,6 @@ coverage.html
 node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
-package-lock.json
 
 # OS and Editor metadata
 .DS_Store
