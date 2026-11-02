@@ -109,3 +109,37 @@ func TestConversations_ListAndGetNotFound(t *testing.T) {
 		assert.True(t, c.IsTracked)
 	}
 }
+
+// TestConversations_ResetBackfill covers ResetConversationBackfill, consumed by the
+// manage_tracked_contact MCP tool (MCP-06).
+func TestConversations_ResetBackfill(t *testing.T) {
+	database := getTestDB(t)
+	defer database.Close()
+	ctx := context.Background()
+
+	convID := "conv-reset-" + uuid.New().String()
+	require.NoError(t, database.UpsertConversation(ctx, &db.Conversation{
+		ID:   convID,
+		Name: "Reset Backfill Conversation",
+	}))
+
+	// Seed a cursor and a completed backfill, then reset both.
+	cursorVal := "cursor_token_reset"
+	require.NoError(t, database.UpdateConversationBackfillCursor(ctx, convID, &cursorVal))
+	_, err := database.Pool.Exec(ctx, `UPDATE conversations SET backfill_complete = TRUE WHERE id = $1`, convID)
+	require.NoError(t, err)
+
+	require.NoError(t, database.ResetConversationBackfill(ctx, convID))
+
+	fetched, err := database.GetConversation(ctx, convID)
+	require.NoError(t, err)
+	assert.Nil(t, fetched.BackfillCursor)
+	assert.False(t, fetched.BackfillComplete)
+
+	// Validation and not-found paths.
+	assert.Error(t, database.ResetConversationBackfill(ctx, ""))
+	assert.ErrorIs(t, database.ResetConversationBackfill(ctx, "nonexistent-conv-id"), db.ErrNotFound)
+
+	var nilDB *db.DB
+	assert.Error(t, nilDB.ResetConversationBackfill(ctx, convID))
+}
