@@ -36,6 +36,7 @@ type Config struct {
 	PhoneDisconnectGraceMinutes int
 	PullFullSizeMedia           bool
 	MediaDir                    string
+	DossierDir                  string
 }
 
 // LoadConfig reads configuration from environment variables with fallback defaults.
@@ -56,6 +57,7 @@ func LoadConfig() (*Config, error) {
 	phoneGraceMinutes := getEnvInt("PHONE_DISCONNECT_GRACE_MINUTES", 15)
 	pullFullSizeMedia := getEnvBool("PULL_FULL_SIZE_MEDIA", false)
 	mediaDir := getEnv("MEDIA_DIR", "/data/media")
+	dossierDir := getEnv("DOSSIER_DIR", "/data/dossiers")
 
 	trackedRaw := getEnv("TRACKED_CONTACTS", "")
 	var trackedContacts []string
@@ -97,6 +99,7 @@ func LoadConfig() (*Config, error) {
 		PhoneDisconnectGraceMinutes: phoneGraceMinutes,
 		PullFullSizeMedia:           pullFullSizeMedia,
 		MediaDir:                    mediaDir,
+		DossierDir:                  dossierDir,
 	}
 
 	return cfg, nil

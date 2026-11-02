@@ -23,13 +23,38 @@ type ContactThumbnailFetcher interface {
 	GetContactThumbnail(ctx context.Context, contactIDs ...string) (*gmproto.GetThumbnailResponse, error)
 }
 
+// Contact number kind codes reported by the libgm contact-number payload.
+const (
+	contactNumberKindContact   = 2 // address-book contact entry
+	contactNumberKindUserInput = 7 // user-typed number
+)
+
 // ContactSummary represents a normalized Google Contact entry.
 type ContactSummary struct {
-	ContactID      string `json:"contact_id"`
-	ParticipantID  string `json:"participant_id"`
-	Name           string `json:"name"`
-	Number         string `json:"number"`
-	AvatarHexColor string `json:"avatar_hex_color"`
+	ContactID      string   `json:"contact_id"`
+	ParticipantID  string   `json:"participant_id"`
+	Name           string   `json:"name"`
+	Nickname       string   `json:"nickname"`
+	Number         string   `json:"number"`
+	AvatarHexColor string   `json:"avatar_hex_color"`
+	Labels         []string `json:"labels"`
+}
+
+// contactNumberLabels derives stable labels from the libgm contact-number kind code.
+// The protocol does not expose carrier phone labels (mobile/work/home), so we surface the
+// ground-truth number kind instead of inferring one.
+func contactNumberLabels(num *gmproto.ContactNumber) []string {
+	if num == nil {
+		return []string{}
+	}
+	switch num.GetMysteriousInt() {
+	case contactNumberKindContact:
+		return []string{"contact"}
+	case contactNumberKindUserInput:
+		return []string{"user_input"}
+	default:
+		return []string{"unknown"}
+	}
 }
 
 // SyncContacts retrieves and normalizes contacts from the given ContactsFetcher.
@@ -72,8 +97,10 @@ func SyncContacts(ctx context.Context, fetcher ContactsFetcher) ([]ContactSummar
 			ContactID:      c.GetContactID(),
 			ParticipantID:  c.GetParticipantID(),
 			Name:           name,
+			Nickname:       c.GetNameAgain(),
 			Number:         number,
 			AvatarHexColor: c.GetAvatarHexColor(),
+			Labels:         contactNumberLabels(c.GetNumber()),
 		})
 	}
 

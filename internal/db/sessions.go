@@ -259,3 +259,54 @@ ORDER BY r.rrf_score DESC LIMIT $5;
 
 	return results, nil
 }
+
+// GetSessionsSince returns conversation sessions that end after since (ordered chronologically ASC).
+// When since is nil, every session for the conversation is returned. It backs the Living Dossier
+// reconciler (PIPE-03), which folds only sessions newer than the dossier's last processed message.
+func (d *DB) GetSessionsSince(ctx context.Context, conversationID string, since *time.Time) ([]ConversationSession, error) {
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversation ID cannot be empty")
+	}
+
+	const getSessionsSinceSQL = `
+SELECT
+    id, conversation_id, started_at, ended_at, message_count,
+    summary, transcript, is_processed, created_at, updated_at
+FROM conversation_sessions
+WHERE conversation_id = $1
+  AND ($2::timestamptz IS NULL OR ended_at > $2)
+ORDER BY started_at ASC;
+`
+
+	rows, err := d.Pool.Query(ctx, getSessionsSinceSQL, conversationID, since)
+	if err != nil {
+		return nil, fmt.Errorf("query conversation sessions since: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []ConversationSession
+	for rows.Next() {
+		var sess ConversationSession
+		if err := rows.Scan(
+			&sess.ID,
+			&sess.ConversationID,
+			&sess.StartedAt,
+			&sess.EndedAt,
+			&sess.MessageCount,
+			&sess.Summary,
+			&sess.Transcript,
+			&sess.IsProcessed,
+			&sess.CreatedAt,
+			&sess.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan session row: %w", err)
+		}
+		sessions = append(sessions, sess)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate session rows: %w", err)
+	}
+
+	return sessions, nil
+}

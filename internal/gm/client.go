@@ -106,6 +106,18 @@ func (c *Client) FetchMessages(ctx context.Context, conversationID string, count
 	return c.libgmClient.FetchMessages(ctx, conversationID, count, protoCursor)
 }
 
+// ListContacts wraps libgm.Client.ListContacts, exposing the Google Contacts roster for
+// dossier enrichment (PIPE-04).
+func (c *Client) ListContacts(ctx context.Context) (*gmproto.ListContactsResponse, error) {
+	return c.libgmClient.ListContacts(ctx)
+}
+
+// ListTopContacts wraps libgm.Client.ListTopContacts, exposing the frequently contacted roster
+// for dossier enrichment (PIPE-04).
+func (c *Client) ListTopContacts(ctx context.Context) (*gmproto.ListTopContactsResponse, error) {
+	return c.libgmClient.ListTopContacts(ctx)
+}
+
 // LibGM returns the underlying libgm.Client.
 func (c *Client) LibGM() *libgm.Client {
 	return c.libgmClient

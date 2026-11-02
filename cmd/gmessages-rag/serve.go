@@ -211,6 +211,30 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logger:          logger.With().Str("component", "sessionizer").Logger(),
 	})
 
+	dossierModel := pipeline.NewOpenAIDossierModel(pipeline.DossierModelConfig{
+		BaseURL: cfg.LLMBaseURL,
+		APIKey:  cfg.LLMAPIKey,
+		Model:   cfg.DossierModel,
+		Logger:  logger.With().Str("component", "dossier_model").Logger(),
+	})
+
+	// gmClient is assigned after the debouncer is created; the contact source closes over it so
+	// late-bound contacts fetching does not reorder daemon construction.
+	var gmClient *gm.Client
+	dossierReconciler := pipeline.NewDossierReconciler(pipeline.DossierReconcilerConfig{
+		Store:     database,
+		Model:     dossierModel,
+		OutputDir: cfg.DossierDir,
+		Location:  cfg.Location,
+		Logger:    logger.With().Str("component", "dossier").Logger(),
+		ContactSource: func(contactCtx context.Context) ([]gm.ContactSummary, error) {
+			if gmClient == nil {
+				return nil, nil
+			}
+			return gm.SyncContacts(contactCtx, gmClient)
+		},
+	})
+
 	debouncer := pipeline.NewSmartDebouncer(pipeline.DebouncerConfig{
 		IdleTimeout: time.Duration(cfg.DossierDebounceMinutes) * time.Minute,
 		Logger:      logger.With().Str("component", "debouncer").Logger(),
@@ -229,6 +253,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			logger.Info().Str("conversation_id", conversationID).Int("session_count", len(sessions)).Msg("Completed sessionization on flush")
+			// Reconcile the Living Dossier from the freshly sessionized messages (PIPE-03 / PIPE-04)
+			outcome, dossierErr := dossierReconciler.Reconcile(flushCtx, conversationID)
+			if dossierErr != nil {
+				logger.Error().Err(dossierErr).Str("conversation_id", conversationID).Msg("Failed to reconcile Living Dossier on flush")
+				return dossierErr
+			}
+			if outcome != nil && outcome.Changed {
+				logger.Info().Str("conversation_id", conversationID).Int("version", outcome.Dossier.Version).Msg("Reconciled Living Dossier on flush")
+			}
 			return nil
 		},
 	})
@@ -239,7 +272,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if sessionPath == "" {
 		sessionPath = "/data/auth/session.json"
 	}
-	gmClient, err := gm.NewClient(gm.ClientOptions{
+	gmClient, err = gm.NewClient(gm.ClientOptions{
 		SessionPath: sessionPath,
 		Logger:      logger.With().Str("component", "libgm").Logger(),
 		OnConversationActive: func(conversationID string) {
