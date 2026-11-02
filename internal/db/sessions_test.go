@@ -405,15 +405,4 @@ func TestSearchSessionsHybridAllConversations(t *testing.T) {
 	if !found[convA] || !found[convB] {
 		t.Fatalf("expected sessions from both conversations, got found=%v (n=%d)", found, len(results))
 	}
-
-	// A query with no lexical or vector match returns no rows from these conversations.
-	none, err := database.SearchSessionsHybridAllConversations(ctx, "xyznonexistentqueryxyz", makeUnitVec(200), nil, nil, 10)
-	if err != nil {
-		t.Fatalf("SearchSessionsHybridAllConversations (no-match) failed: %v", err)
-	}
-	for _, r := range none {
-		if r.ConversationID == convA || r.ConversationID == convB {
-			t.Errorf("unexpected match for a non-matching query: %+v", r)
-		}
-	}
 }

@@ -226,7 +226,14 @@ func TestMessages_CountUnindexedAndFTS(t *testing.T) {
 	// Verify count increased by 2
 	newUnindexed, err := database.CountUnindexedMessages(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, initialUnindexed+2, newUnindexed)
+	// CountUnindexedMessages is global; other package test binaries write to the
+	// shared database concurrently, so assert a monotonic increase rather than an
+	// exact delta. Scoped correctness is proven against this conversation below.
+	assert.GreaterOrEqual(t, newUnindexed, initialUnindexed+2)
+
+	unassigned, err := database.GetUnassignedMessages(ctx, convID)
+	require.NoError(t, err)
+	assert.Len(t, unassigned, 2)
 
 	// 2. Full-Text Search (SearchMessagesFTS)
 	results, err := database.SearchMessagesFTS(ctx, convID, "quantum reactor", 10)
