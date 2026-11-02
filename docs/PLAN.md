@@ -84,10 +84,17 @@ This roadmap establishes the phased path from active feature implementation to a
   - `docs/operations/monitoring-and-runbooks.md` (Prometheus metrics, health probes, Apprise/ntfy push alerts, operational runbooks) *(Completed - commit `0c55d43`)*
 
 ### 4.3 VitePress Multi-Level Navigation & Theme Integration (`DOCS-02` / Issue #52)
-- [ ] Multi-level layout with top headers (`Guide`, `Architecture`, `Specifications`, `Operations`), left category sidebar, right in-page TOC (`aside: true`, `outline: [2, 3]`), `vitepress-plugin-mermaid`, and math/KaTeX rendering. *(Jules Session `16316588181162201322` in progress)*
+- [x] Multi-level layout with top headers (`Guide`, `Architecture`, `Specifications`, `Operations`), left category sidebar, right in-page TOC (`aside: true`, `outline: [2, 3]`), `vitepress-plugin-mermaid`, and math/KaTeX rendering. *(Completed - commits `3e2db6a`, `3cbba21`)*
 
 ### 4.4 Automated GitHub Pages CI/CD Workflow (`CI-02` / Issue #53)
-- [ ] Build & deployment workflow `.github/workflows/deploy-pages.yml` for automated GitHub Pages hosting on push to `main`.
+- [x] Build & deployment workflow `.github/workflows/deploy-pages.yml` for automated GitHub Pages hosting on push to `main`. *(Completed - commits `3e2db6a`, `3cbba21`)*
 
-### 4.5 Versioned Release (`v1.0.0-rc1` / `v1.0.0`)
-- Tag repository and build multi-arch binaries (`linux/amd64`, `linux/arm64`) and Docker images.
+### 4.5 Component-by-Component ≥ 80% Coverage Sprint (`TEST-01`, `TEST-02`, `TEST-03`)
+- Enforce strict $\ge 80\%$ statement and branch test coverage across all individual packages prior to release:
+  - [ ] **Issue #54 (`TEST-01`)**: `internal/db` queries, media attachments, unindexed counts, and FTS search (target $\ge 80\%$, currently 68.2%).
+  - [ ] **Issue #55 (`TEST-02`)**: `internal/gm` client accessors, pairing handlers, and Gaia pairing error paths (target $\ge 80\%$, currently 66.6%).
+  - [ ] **Issue #56 (`TEST-03`)**: `cmd/gmessages-rag` daemon serve, ETL runner, and CLI boundary tests (target $\ge 80\%$, currently 37.0%).
+
+### 4.6 Versioned Release (`v1.0.0-rc1` / `v1.0.0`)
+- [x] Cut initial release candidate tag `v1.0.0-rc1` and publish pre-release on GitHub. *(Completed)*
+- [ ] Build multi-arch binaries (`linux/amd64`, `linux/arm64`) and publish release `v1.0.0` following 80%+ component coverage gate completion.

@@ -41,12 +41,38 @@ func TestGetMigrationScripts(t *testing.T) {
 }
 
 func TestDB_PingUninitialized(t *testing.T) {
-	database := &db.DB{Pool: nil}
+	var nilDB *db.DB
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
+	if err := nilDB.Ping(ctx); err == nil {
+		t.Errorf("expected error pinging typed nil DB, got nil")
+	}
+
+	database := &db.DB{Pool: nil}
 	if err := database.Ping(ctx); err == nil {
 		t.Errorf("expected error pinging nil pool, got nil")
+	}
+
+	if err := database.Migrate(ctx); err == nil {
+		t.Errorf("expected error migrating nil pool, got nil")
+	}
+}
+
+func TestDB_PingSuccess(t *testing.T) {
+	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	database, err := db.New(ctx, dbURL)
+	if err != nil {
+		t.Skipf("skipping live ping test: %v", err)
+		return
+	}
+	defer database.Close()
+
+	if err := database.Ping(ctx); err != nil {
+		t.Errorf("unexpected error pinging live database: %v", err)
 	}
 }
 

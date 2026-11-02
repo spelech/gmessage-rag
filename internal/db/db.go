@@ -80,6 +80,19 @@ func (db *DB) Ping(ctx context.Context) error {
 
 // Migrate executes all embedded SQL migrations in lexical order.
 func (db *DB) Migrate(ctx context.Context) error {
+	if db == nil || db.Pool == nil {
+		return fmt.Errorf("database pool is not initialized")
+	}
+
+	// Acquire advisory lock to serialize migrations across concurrent tests or daemons
+	const migrationAdvisoryLock = 847291038
+	if _, err := db.Pool.Exec(ctx, "SELECT pg_advisory_lock($1)", migrationAdvisoryLock); err != nil {
+		return fmt.Errorf("failed to acquire migration advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = db.Pool.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", migrationAdvisoryLock)
+	}()
+
 	entries, err := fs.ReadDir(migrationFiles, "migrations")
 	if err != nil {
 		return fmt.Errorf("failed to read embedded migrations directory: %w", err)
