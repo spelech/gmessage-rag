@@ -71,11 +71,23 @@ This roadmap establishes the phased path from active feature implementation to a
     - Living Dossier & Hybrid RAG Deep-Dive
     - Observability, Prometheus Metrics & Health Probes
 
-### 4.2 Living Documentation Sweep
-- [x] Update `docs/REQUIREMENTS.md` with commit hashes and PR links for all requirements.
-- [x] Update `docs/ARCHITECTURE.md` with the finalized unified daemon topology and ServeMux routing.
-- [x] Finalize `docs/CHANGELOG.md` under `[1.0.0-rc1] - 2026-11-02`.
-- [ ] Update root `README.md` with visual architecture badges, Docker quickstart, environment variable matrix, and docs link.
+### 4.2 Living Documentation Sweep & Component Guides (`DOCS-01`)
+- [x] Update `docs/REQUIREMENTS.md` with commit hashes and PR links for all requirements. *(Completed - commit `099339d`)*
+- [x] Update `docs/ARCHITECTURE.md` with the finalized unified daemon topology and ServeMux routing. *(Completed - commit `099339d`)*
+- [x] Finalize `docs/CHANGELOG.md` under `[1.0.0-rc1] - 2026-11-02`. *(Completed - commit `099339d`)*
+- [x] Update root `README.md` with visual architecture badges, Docker quickstart, environment variable matrix, and docs link. *(Completed - commit `099339d`)*
+- [x] Author component guides for VitePress multi-nav:
+  - `docs/guide/ui-and-diagnostics.md` (Web Dashboard, QR/Gaia pairing, Test Bench, Tuner)
+  - `docs/guide/pipelines-and-ingestion.md` (3-stage batch ETL, Smart Debouncer, streaming media decryption)
+  - `docs/specs/dossiers-and-hybrid-rag.md` (2h session chunking, Living Dossiers, Hybrid RRF math)
+  - `docs/specs/mcp-server-spec.md` (MCP 2026-07-28, Streamable HTTP/SSE/stdio, tools catalog, prompt injection guardrails)
+  - `docs/operations/monitoring-and-runbooks.md` (Prometheus metrics, health probes, Apprise/ntfy push alerts, operational runbooks) *(Completed - commit `0c55d43`)*
 
-### 4.3 Versioned Release (`v1.0.0-rc1` / `v1.0.0`)
+### 4.3 VitePress Multi-Level Navigation & Theme Integration (`DOCS-02` / Issue #52)
+- [ ] Multi-level layout with top headers (`Guide`, `Architecture`, `Specifications`, `Operations`), left category sidebar, right in-page TOC (`aside: true`, `outline: [2, 3]`), `vitepress-plugin-mermaid`, and math/KaTeX rendering. *(Jules Session `16316588181162201322` in progress)*
+
+### 4.4 Automated GitHub Pages CI/CD Workflow (`CI-02` / Issue #53)
+- [ ] Build & deployment workflow `.github/workflows/deploy-pages.yml` for automated GitHub Pages hosting on push to `main`.
+
+### 4.5 Versioned Release (`v1.0.0-rc1` / `v1.0.0`)
 - Tag repository and build multi-arch binaries (`linux/amd64`, `linux/arm64`) and Docker images.
