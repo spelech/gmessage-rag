@@ -14,7 +14,7 @@ Standard operational procedures for deploying, maintaining, and troubleshooting 
 When tokens expire or a device is unlinked:
 1. An alert is sent via configured Apprise/ntfy endpoints.
 2. Tap the link in the notification or open `http://<host>:8090/pair`.
-3. Scan the new QR code or approve the Gaia emoji challenge on your phone.
+3. Import fresh Google session cookies and approve the Gaia emoji challenge on your phone.
 4. The daemon resumes synchronization immediately without data loss.
 
 ## Runbook 3: Backfilling Conversation History

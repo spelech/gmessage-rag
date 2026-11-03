@@ -22,12 +22,12 @@ flowchart TD
     subgraph Daemon["gmessages-rag Daemon (Go 1.25)"]
         subgraph CLI["CLI Entrypoints (cmd/gmessages-rag)"]
             ServeCmd["serve command<br>(Unified Daemon)"]
-            PairCmd["pair command<br>(--gaia or Terminal QR)"]
+            PairCmd["pair command<br>(cookie import or Gaia)"]
         end
 
         subgraph ServeMux["Unified ServeMux (:8090)"]
             UIRoute["GET / and /dashboard<br>Web Management SPA"]
-            PairRoute["GET /pair and /pair/gaia<br>Live Pairing Visualizer"]
+            PairRoute["GET/POST /pair<br>Cookie Import / Live Pairing"]
             APIRoute["/api/v1/*<br>REST & Briefing API"]
             TestBenchRoute["/testbench and /api/v1/testbench/*<br>Diagnostic Test Bench"]
             MCPRoute["POST /mcp and GET /sse<br>MCP 2026-07-28 Server"]
@@ -80,8 +80,8 @@ flowchart TD
   - Serves the unified `http.ServeMux` on `:8090`.
   - Listens for `SIGINT` / `SIGTERM` signals for graceful HTTP connection draining and state persistence.
 - **`gmessages-rag pair`**: Dedicated pairing CLI:
-  - Defaults to ANSI terminal QR rendering.
-  - Supports `--gaia` flag (`AUTH-04`) for single-device Google Account emoji pairing without camera scanning.
+  - Reads Google session cookies from a file, stdin, or the `--cookies` argument.
+  - Validates the cookies and starts the Gaia emoji challenge (`AUTH-04`) without camera-based linking.
 
 ### 1.2 Unified ServeMux Routing Table
 All routes are mounted on the root `http.ServeMux` in `cmd/gmessages-rag/serve.go`:
@@ -89,7 +89,7 @@ All routes are mounted on the root `http.ServeMux` in `cmd/gmessages-rag/serve.g
 | Route | HTTP Methods | Component | Description |
 | :--- | :--- | :--- | :--- |
 | **`/`**, **`/dashboard`** | `GET` | `web.Dashboard` | Embedded Web Management SPA: daemon status, Postgres stats, tracked contact toggles |
-| **`/pair`**, **`/pair/gaia`** | `GET` | `web.Dashboard` | Live pairing QR visualizer and single-device Gaia emoji challenge display |
+| **`/pair`** | `GET`, `POST` | `web.Dashboard` | Cookie-import pairing UI and single-device Gaia emoji challenge display |
 | **`/api/v1/briefing/today`** | `GET` | `web.Dashboard` | Home Assistant briefing sensor payload (today/tomorrow events & pending loops) |
 | **`/api/v1/tracked-contacts`** | `GET`, `POST` | `web.Dashboard` | Roster of conversations with track/untrack toggles and backfill triggers |
 | **`/api/v1/tuner`** | `GET`, `POST` | `config.Tuner` | Parameter hot-reloader (debouncer window, RRF $k$ weight, batch limits) |
@@ -403,33 +403,39 @@ LIMIT $4;
 
 ---
 
-## 7. Single-Device Gaia Pairing vs Dual QR Flow
+## 7. Pairing Mechanisms: Cookie Import vs. Gaia Emoji Challenge
 
 ```mermaid
 sequenceDiagram
     autonumber
+    participant User as User Browser / Terminal
     participant Daemon as gmessages-rag Daemon
-    participant LibGM as libgm Gaia Engine
+    participant LibGM as libgm Client
     participant Push as Apprise / ntfy
     participant Phone as User Mobile Device
     participant GMApp as Google Messages Android App
 
-    alt Flow A: Single-Device Gaia Emoji Challenge (No Camera Scanning)
-        Daemon->>LibGM: StartGaiaPairing()
+    alt Flow A: Cookie Import then Gaia Emoji Challenge
+        User->>User: Sign in to messages.google.com/web and copy a request as cURL
+        User->>Daemon: POST /pair or pair --cookies with cURL/JSON/Cookie header
+        Daemon->>Daemon: ParseCookies validates SID, HSID, OSID, SSID, APISID, SAPISID
+        Daemon->>LibGM: FetchConfig(ctx)
+        LibGM-->>Daemon: Cookies accepted
+        Daemon->>Daemon: SaveSession (POSIX 0600)
+        Daemon->>LibGM: PairGaia(ctx)
         LibGM-->>Daemon: Challenge Emoji (e.g. 🚀 Rocket)
-        Daemon->>Push: Push Alert ("Google Messages challenge: Select 🚀")
+        Daemon->>Push: Push Alert ("Pairing challenge: 🚀")
         Push-->>Phone: Notification ("Pairing challenge: 🚀")
         Phone->>GMApp: Open Google Messages -> Device Pairing
-        GMApp-->>Phone: Prompt ("Which emoji matches your computer?")
+        GMApp-->>Phone: Prompt ("Which emoji matches?")
         Phone->>GMApp: Tap 🚀
         GMApp->>LibGM: Ukey2 Handshake Completed
         LibGM-->>Daemon: PairSuccessful (0600 session.json saved)
-    else Flow B: Dual-Screen QR Camera Scan
-        Phone->>Daemon: GET /pair
-        Daemon-->>Phone: Render live QR Code SVG
-        Phone->>GMApp: Device Pairing -> Scan QR code with camera
-        GMApp->>LibGM: PairSuccessful
-        LibGM-->>Daemon: Session persisted to /data/auth/session.json
+    else Flow B: Re-Authentication with Fresh Cookies
+        User->>Daemon: POST /pair with fresh cookies after session revocation
+        Daemon->>LibGM: FetchConfig(ctx)
+        LibGM-->>Daemon: Cookies accepted
+        Daemon->>Daemon: SaveSession (POSIX 0600)
     end
 ```
 
@@ -444,7 +450,7 @@ gmessages-rag/
 │       ├── main.go            # CLI root command (Cobra)
 │       ├── serve.go           # Daemon orchestration, ServeMux, background workers
 │       ├── serve_test.go      # ServeMux wiring and shutdown tests
-│       └── pair.go            # QR terminal and Gaia emoji pairing CLI
+│       └── pair.go            # Cookie import and Gaia emoji pairing CLI
 ├── internal/
 │   ├── config/                # Environment variables and dynamic runtime tuner
 │   ├── db/                    # pgxpool, migrations, idempotent CRUD, RRF search

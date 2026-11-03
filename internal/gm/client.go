@@ -66,7 +66,6 @@ type Client struct {
 	mu            sync.RWMutex
 	pairDone      chan struct{}
 	lastPairError error
-	currentQR     string
 	currentEmoji  string
 }
 

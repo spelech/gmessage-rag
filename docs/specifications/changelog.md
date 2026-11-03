@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Cookie Import Pairing (`AUTH-02`)**: Replaced QR device pairing with Matrix-style Google session cookie import. The CLI (`gmessages-rag pair --cookies`) and web dashboard (`GET/POST /pair`) accept a cURL command, JSON map/array, raw `Cookie:` header, or semicolon pairs. The importer validates the required Google cookies and starts the Gaia emoji challenge.
+
 ### Added
 - **Living Dossier State Reconciliation Engine (`PIPE-03`, #78)**: Injectable OpenAI-compatible reconciler (`internal/pipeline/dossier.go`, `internal/pipeline/dossier_state.go`) that folds new sessions into the current dossier, anchors relative dates against session timestamps, applies chronological overrides, transitions past events, persists versioned state plus audit history, and exports Markdown under `DOSSIER_DIR`.
 - **Google Contacts Dossier Enrichment (`PIPE-04`, #78)**: `internal/pipeline/contacts.go` merges the `ListContacts` roster (names, avatars, nicknames, number labels) into the reconciled dossier state and Markdown; the daemon debouncer now runs reconciliation after sessionization.
@@ -26,10 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0-rc1] - 2026-11-02
 
 ### Added
-- **Single-Device Gaia Emoji Pairing (`AUTH-04`)**: Google Account (Gaia) emoji challenge flow (`libgm.Client.DoGaiaPairing`) enabling pairing on single-screen mobile devices without camera QR scanning (PR #36, commit `fd1f7a3`).
+- **Single-Device Gaia Emoji Pairing (`AUTH-04`)**: Google Account (Gaia) emoji challenge flow (`libgm.Client.DoGaiaPairing`) after cookie import, enabling pairing on single-screen mobile devices without a camera (PR #36, commit `fd1f7a3`).
 - **Standardized 3-Stage Batch ETL Pipeline (`PIPE-06`)**: Cursor-paginated message backfill pipeline (`Extract`, `Transform`, `Load`) in `internal/pipeline/etl.go` guaranteeing bounded memory consumption and transactional batch persistence (PR #48, commit `badf3e9`).
 - **Google Contacts Synchronization (`PIPE-04`)**: Contact roster enrichment via `libgm.Client.ListContacts` and `ListTopContacts` (`internal/gm/contacts.go`) integrating real names, avatars, and phone labels into Living Dossiers (PR #47, commit `836834b`).
-- **Web Management Dashboard & Visualizer (`UI-01`)**: Embedded SPA served on `/` and `/dashboard` providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer (PR #46, commit `8dfb444`).
+- **Web Management Dashboard & Visualizer (`UI-01`)**: Embedded SPA served on `/` and `/dashboard` providing live daemon status, database connectivity metrics, tracked contact toggle table, and cookie-import pairing console (PR #46, commit `8dfb444`).
 - **Context-Cortex Style Diagnostic Test Bench (`UI-02`)**: Developer workbench at `/testbench` and `/api/v1/testbench/*` for ad-hoc MCP tool execution, `<untrusted_conversation_data>` boundary verification, Hybrid RRF scoring analysis, and OCR simulations (PR #45, commit `91e8fcc`).
 - **Parameter & Pipeline Runtime Tuner (`UI-03`)**: Dynamic hot-reload tuner (`internal/config/tuner.go`, `/api/v1/tuner`) to inspect and update runtime variables (debouncer duration, RRF $k$ weight, backfill batch sizes) without restarting the container (PR #44, commit `2407ed6`).
 - **Dashboard Usability & Accessibility Enhancement (`UI-04`)**: Responsive table overflow wrapper, CSS clamp/minmax cards, WCAG 2.1 AA ARIA attributes, >=44px touch targets, and inline network error recovery banner in Web Management Dashboard (`internal/web/assets/index.html`).

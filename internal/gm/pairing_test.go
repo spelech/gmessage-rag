@@ -1,9 +1,6 @@
 package gm
 
 import (
-	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/events"
-	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
 // TestSessionPersistence_Permissions verifies AUTH-01 and SEC-01 requirements:
@@ -88,87 +84,6 @@ func TestSessionPersistence_Permissions(t *testing.T) {
 	assert.Equal(t, os.FileMode(0600), infoAfterPair.Mode().Perm())
 }
 
-// TestPairingHandlers verifies AUTH-02 Web Mode HTTP handler serving QR PNG, JSON status, and HTML auto-refresh.
-func TestPairingHandlers(t *testing.T) {
-	tempDir := t.TempDir()
-	sessionPath := filepath.Join(tempDir, "session.json")
-
-	client, err := NewClient(ClientOptions{
-		SessionPath: sessionPath,
-	})
-	require.NoError(t, err)
-
-	handler := NewPairingHandler(client)
-
-	// Case 1: GET /pair before QR code is ready
-	req := httptest.NewRequest(http.MethodGet, "/pair", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Generating Pairing QR Code")
-
-	// Case 2: Set QR code and request HTML
-	mockQR := "https://messages.google.com/web/authentication?c=mock-qr-test-code"
-	err = handler.SetQR(mockQR)
-	require.NoError(t, err)
-
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Scan to Pair with Google Messages")
-	assert.Contains(t, rec.Body.String(), `<img src="/pair?format=png"`)
-
-	// Case 3: GET /pair?format=png returns valid image
-	pngReq := httptest.NewRequest(http.MethodGet, "/pair?format=png", nil)
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, pngReq)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
-	assert.NotEmpty(t, rec.Body.Bytes())
-
-	// Case 4: GET /pair?format=json returns status
-	jsonReq := httptest.NewRequest(http.MethodGet, "/pair?format=json", nil)
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, jsonReq)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"has_qr":true`)
-	assert.Contains(t, rec.Body.String(), `"paired":false`)
-
-	// Case 5: Mark as paired
-	handler.MarkPaired()
-
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Google Messages is Paired")
-
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, jsonReq)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"paired":true`)
-
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, pngReq)
-	assert.Equal(t, http.StatusGone, rec.Code)
-}
-
-func TestPairCLI_ContextCancel(t *testing.T) {
-	tempDir := t.TempDir()
-	sessionPath := filepath.Join(tempDir, "session.json")
-
-	client, err := NewClient(ClientOptions{
-		SessionPath: sessionPath,
-	})
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-
-	// PairCLI should return context.Canceled if StartLogin fails or context cancels
-	err = client.PairCLI(ctx)
-	assert.Error(t, err)
-}
-
 func TestSaveAuthData_ErrorCases(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -199,27 +114,4 @@ func TestLoadAuthData_Corrupt(t *testing.T) {
 	_, err := LoadAuthData(corruptFile)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse session json")
-}
-
-// TestPairingHandler_Start_AlreadyLoggedIn verifies Start short-circuits with no
-// outbound network when the session is already paired (HARN-03).
-// The live QR registration path is covered by TestPairingHandler_Start_Live,
-// which is quarantined behind the `live` build tag.
-func TestPairingHandler_Start_AlreadyLoggedIn(t *testing.T) {
-	tempDir := t.TempDir()
-	sessionPath := filepath.Join(tempDir, "session.json")
-
-	// When client is logged in, Start marks isPaired = true and returns nil immediately.
-	client, err := NewClient(ClientOptions{
-		SessionPath: sessionPath,
-	})
-	require.NoError(t, err)
-	client.AuthData().Browser = &gmproto.Device{}
-	client.AuthData().SetCookies(map[string]string{"dummy": "cookie"})
-	assert.True(t, client.LibGM().IsLoggedIn())
-
-	handler := NewPairingHandler(client)
-	err = handler.Start(context.Background())
-	assert.NoError(t, err)
-	assert.True(t, handler.isPaired)
 }

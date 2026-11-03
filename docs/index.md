@@ -15,7 +15,7 @@ hero:
 
 features:
   - title: Matrix-Free RCS/SMS Pairing
-    details: Pairs directly via Google Messages Web protocol using QR codes or single-device Gaia emoji matching without Matrix homeservers.
+    details: Pairs directly via Google Messages Web protocol by importing browser session cookies and completing the single-device Gaia emoji challenge without Matrix homeservers.
   - title: Content-Addressed Media & Vision OCR
     details: Automatically downloads, decrypts, and hashes RCS media with automated OpenAI-compatible vision model OCR extraction.
   - title: 2-Hour Windowing & Hybrid RAG

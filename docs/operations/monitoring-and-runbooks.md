@@ -66,8 +66,8 @@ EXTERNAL_WEB_URL="https://messages.home.internal"
 ### Runbook 1: Re-Authenticating a De-Paired Session
 1. **Symptom**: Prometheus gauge `gmessages_active_websocket_connections` drops to 0; ntfy notification received: *"Google Messages session requires re-authentication"*.
 2. **Resolution**:
-   - Navigate to `EXTERNAL_WEB_URL/pair` to scan the auto-refreshing QR code with your phone camera, OR:
-   - Run `docker exec -it gmessages-rag gmessages-rag pair --gaia` to approve via single-device emoji challenge.
+   - Navigate to `EXTERNAL_WEB_URL/pair` and paste fresh Google session cookies (copied from DevTools as cURL), OR:
+   - Run `docker exec -it gmessages-rag gmessages-rag pair --cookies -` and paste the cURL command.
 3. **Verification**: Confirm `/healthz/ready` returns `200 OK`.
 
 ### Runbook 2: Manual Contact Backfill Trigger

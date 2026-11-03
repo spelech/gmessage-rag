@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Cookie Import Pairing (`AUTH-02`)**: Replaced QR device pairing with Matrix-style Google session cookie import. The CLI (`gmessages-rag pair --cookies`) and web dashboard (`GET/POST /pair`) accept a cURL command, JSON map/array, raw `Cookie:` header, or semicolon pairs. The importer validates the required Google cookies and starts the Gaia emoji challenge.
+
 ### Added
 - **DB-Backed MCP Tool Handlers (`MCP-01`..`MCP-06`, #79)**: All six builtin MCP tools now execute real queries through `internal/db` (`ListConversations`, `GetContactDossier`/`GetDossierLiveTail`, `SearchSessionsHybrid`, `GetMessagesAroundTime`, `SearchMediaAttachments`, `SetConversationTracked`/`ResetConversationBackfill`) instead of placeholder stubs. Added optional `MCP_ACCESS_TOKEN` bearer enforcement on `tools/call` and a `db.SearchMediaAttachments` query.
 - **Real-Postgres MCP Integration Tests**: `internal/mcpserver/tools_test.go` asserts seeded records flow through the JSON-RPC tool surface (`TestTools_*_RealDB`), skipping cleanly when `DATABASE_URL` is unavailable.
