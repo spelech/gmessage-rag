@@ -30,10 +30,10 @@ var cookieAttributes = map[string]struct{}{
 }
 
 var (
-	// curlHeaderPattern matches -H/--header arguments in either quote style.
-	curlHeaderPattern = regexp.MustCompile(`(?is)(?:^|\s)(?:-H|--header)\s+(?:"([^"]*)"|'([^']*)')`)
-	// curlCookiePattern matches -b/--cookie arguments in either quote style.
-	curlCookiePattern = regexp.MustCompile(`(?is)(?:^|\s)(?:-b|--cookie)\s+(?:"([^"]*)"|'([^']*)')`)
+	// curlHeaderPattern matches -H/--header arguments in either quote style (including Windows cmd ^").
+	curlHeaderPattern = regexp.MustCompile(`(?is)(?:^|\s)(?:-H|--header)\s+\^?(?:"([^"]*)"|'([^']*)')\^?`)
+	// curlCookiePattern matches -b/--cookie arguments in either quote style (including Windows cmd ^").
+	curlCookiePattern = regexp.MustCompile(`(?is)(?:^|\s)(?:-b|--cookie)\s+\^?(?:"([^"]*)"|'([^']*)')\^?`)
 	// rawCookieHeaderPattern matches a raw "Cookie: ..." header line.
 	rawCookieHeaderPattern = regexp.MustCompile(`(?im)^\s*cookie\s*:\s*(.+)$`)
 )
@@ -223,8 +223,9 @@ func parseCookiePairs(input string) (map[string]string, error) {
 			continue
 		}
 		name = strings.TrimSpace(name)
+		name = strings.Trim(name, `"'^`)
 		value = strings.TrimSpace(value)
-		value = strings.Trim(value, `"'`)
+		value = strings.Trim(value, `"'^`)
 		if name == "" || value == "" {
 			continue
 		}
@@ -293,9 +294,21 @@ func (c *Client) SaveSession() error {
 	return SaveAuthData(c.sessionPath, c.authData)
 }
 
-// PairWithCookies validates Google session cookies, persists them, and then
-// starts the Gaia emoji challenge to link the phone. This mirrors the upstream
-// mautrix-gmessages cookie login: cookies first, then emoji device pairing.
+// HasExistingPairing reports whether the loaded session already has device-link
+// cryptographic credentials (PairingID, TachyonAuthToken, and Mobile device)
+// from a prior Gaia emoji challenge.
+func (c *Client) HasExistingPairing() bool {
+	if c == nil || c.authData == nil {
+		return false
+	}
+	return len(c.authData.TachyonAuthToken) > 0 &&
+		c.authData.PairingID.String() != "00000000-0000-0000-0000-000000000000" &&
+		c.authData.Mobile != nil
+}
+
+// PairWithCookies validates Google session cookies, persists them, and if the
+// session already has valid Gaia pairing keys, re-authenticates in place without
+// repeating the emoji challenge. Otherwise it starts the Gaia emoji challenge.
 func (c *Client) PairWithCookies(ctx context.Context, cookies map[string]string, onEmoji func(string)) error {
 	if len(cookies) == 0 {
 		return errors.New("no cookies provided")
@@ -307,5 +320,11 @@ func (c *Client) PairWithCookies(ctx context.Context, cookies map[string]string,
 	if err := c.SaveSession(); err != nil {
 		return fmt.Errorf("failed to persist cookies: %w", err)
 	}
+
+	if c.HasExistingPairing() {
+		c.logger.Info().Msg("Existing Gaia device pairing found; re-authenticating session with new cookies (skipping emoji challenge)")
+		return nil
+	}
+
 	return c.PairGaia(ctx, onEmoji)
 }

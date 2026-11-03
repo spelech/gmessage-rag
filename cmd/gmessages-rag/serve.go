@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -78,27 +80,125 @@ func BuildServeMuxWithTuner(database *db.DB, gmClient *gm.Client, mcpSrv *mcpser
 	return rootMux
 }
 
+func cleanDigits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// resolveTrackedConversations converts human names, phone numbers, or conversation IDs
+// into concrete Google Messages conversation IDs by querying active conversations.
+func resolveTrackedConversations(ctx context.Context, logger zerolog.Logger, gmClient *gm.Client, targets []string) []string {
+	if len(targets) == 0 || gmClient == nil {
+		return nil
+	}
+
+	convResp, err := gmClient.ListConversations(ctx, 100)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Could not list conversations to resolve tracked contacts; falling back to raw targets")
+		return targets
+	}
+
+	convs := convResp.GetConversations()
+	var resolved []string
+	seen := make(map[string]bool)
+
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+
+		matchedID := ""
+		for _, c := range convs {
+			if c == nil {
+				continue
+			}
+			convID := c.GetConversationID()
+			if convID == target {
+				matchedID = convID
+				break
+			}
+			if c.GetName() != "" && strings.EqualFold(strings.TrimSpace(c.GetName()), target) {
+				matchedID = convID
+				break
+			}
+			for _, p := range c.GetParticipants() {
+				if p == nil {
+					continue
+				}
+				if p.GetFullName() != "" && strings.EqualFold(strings.TrimSpace(p.GetFullName()), target) {
+					matchedID = convID
+					break
+				}
+				cleanP := cleanDigits(p.GetFormattedNumber())
+				cleanT := cleanDigits(target)
+				if cleanT != "" && (cleanP == cleanT || strings.HasSuffix(cleanP, cleanT) || strings.HasSuffix(cleanT, cleanP)) {
+					matchedID = convID
+					break
+				}
+			}
+			if matchedID != "" {
+				break
+			}
+		}
+
+		finalID := target
+		if matchedID != "" {
+			logger.Info().Str("target", target).Str("conversation_id", matchedID).Msg("Resolved tracked contact to conversation ID")
+			finalID = matchedID
+		} else {
+			logger.Warn().Str("target", target).Msg("No matching conversation found for tracked contact; using raw identifier")
+		}
+
+		if !seen[finalID] {
+			seen[finalID] = true
+			resolved = append(resolved, finalID)
+		}
+	}
+
+	return resolved
+}
+
 // StartETLForTrackedContacts triggers background ETL backfill ingestion for tracked contacts and
 // sessionizes the newly ingested messages.
-func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, database *db.DB, gmClient *gm.Client, sessionizer *pipeline.Sessionizer, media *pipeline.MediaIngestor, trackedContacts []string, batchSize int) {
+func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, database *db.DB, gmClient *gm.Client, sessionizer *pipeline.Sessionizer, media *pipeline.MediaIngestor, trackedContacts []string, batchSize int, onContactSynced ...func(context.Context, string)) {
 	if len(trackedContacts) == 0 || database == nil || gmClient == nil {
 		return
 	}
 
 	go func() {
-		logger.Info().Int("count", len(trackedContacts)).Msg("Starting background ETL sync for tracked contacts")
+		// Wait briefly for initial Google Messages session connection if logged in
+		for i := 0; i < 20; i++ {
+			if gmClient.LibGM() == nil || gmClient.LibGM().IsConnected() || !gmClient.LibGM().IsLoggedIn() {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+
+		resolvedContacts := resolveTrackedConversations(ctx, logger, gmClient, trackedContacts)
+		logger.Info().Int("count", len(resolvedContacts)).Msg("Starting background ETL sync for tracked contacts")
 		etl := &pipeline.ETLPipeline{
 			Fetcher:  gmClient,
 			Database: database,
 			Media:    media,
 		}
 
-		limit := int64(batchSize)
-		if limit <= 0 {
-			limit = 100
+		maxMessages := int64(batchSize)
+		if maxMessages <= 0 {
+			maxMessages = 100
 		}
+		const pageSize int64 = 100
 
-		for _, contactID := range trackedContacts {
+		for idx, contactID := range resolvedContacts {
 			select {
 			case <-ctx.Done():
 				logger.Info().Msg("Background ETL aborted due to shutdown")
@@ -106,8 +206,19 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 			default:
 			}
 
+			contactName := contactID
+			if idx < len(trackedContacts) && strings.TrimSpace(trackedContacts[idx]) != "" {
+				contactName = strings.TrimSpace(trackedContacts[idx])
+			}
+			_ = database.UpsertConversation(ctx, &db.Conversation{
+				ID:        contactID,
+				Name:      contactName,
+				IsTracked: true,
+			})
+
 			logger.Debug().Str("contact_id", contactID).Msg("Processing ETL backfill for contact")
 			var cursor []byte
+			var totalFetched int64
 			for {
 				select {
 				case <-ctx.Done():
@@ -115,21 +226,44 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 				default:
 				}
 
-				nextCursor, inserted, err := etl.RunBatch(ctx, contactID, limit, cursor)
+				remaining := maxMessages - totalFetched
+				if remaining <= 0 {
+					break
+				}
+				fetchCount := pageSize
+				if remaining < fetchCount {
+					fetchCount = remaining
+				}
+
+				nextCursor, inserted, err := etl.RunBatch(ctx, contactID, fetchCount, cursor)
 				if err != nil {
 					logger.Warn().Err(err).Str("contact_id", contactID).Msg("ETL backfill batch failed for contact")
 					break
 				}
+				totalFetched += int64(inserted)
 
-				if inserted == 0 || len(nextCursor) == 0 {
+				if inserted == 0 || len(nextCursor) == 0 || string(nextCursor) == string(cursor) {
 					break
 				}
 				cursor = nextCursor
+
+				// Pace ingestion between batches to prevent CPU/IO spikes
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(250 * time.Millisecond):
+				}
 			}
 
 			if sessionizer != nil {
 				if _, err := sessionizer.ProcessUnassignedMessages(ctx, contactID); err != nil && ctx.Err() == nil {
 					logger.Warn().Err(err).Str("contact_id", contactID).Msg("Sessionizer processing failed after ETL backfill")
+				}
+			}
+
+			for _, fn := range onContactSynced {
+				if fn != nil && ctx.Err() == nil {
+					fn(ctx, contactID)
 				}
 			}
 		}
@@ -290,6 +424,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		IdleTimeout: time.Duration(cfg.DossierDebounceMinutes) * time.Minute,
 		Logger:      logger.With().Str("component", "debouncer").Logger(),
 		OnFlush: func(flushCtx context.Context, conversationID string) error {
+			if cfg.PauseIngestion {
+				logger.Debug().Str("conversation_id", conversationID).Msg("Ingestion paused: skipping debounced flush processing")
+				return nil
+			}
 			logger.Info().Str("conversation_id", conversationID).Msg("Debounced conversation flush triggered")
 			// Process pending vision OCR for image attachments in this conversation (PIPE-01)
 			if count, ocrErr := visionService.ProcessUnprocessedAttachments(flushCtx, conversationID, 50); ocrErr != nil {
@@ -339,6 +477,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// historical backfill path ever writes to Postgres.
 		OnMessageUpsert: func(upsertCtx context.Context, msg *gmproto.Message, isFromMe bool, _ time.Time) error {
 			if msg == nil {
+				return nil
+			}
+			if cfg.PauseIngestion {
+				logger.Debug().Str("message_id", msg.GetMessageID()).Msg("Ingestion paused: skipping message persistence and media download")
 				return nil
 			}
 			conversationID := msg.GetConversationID()
@@ -404,7 +546,26 @@ func runServe(cmd *cobra.Command, args []string) error {
 	rootMux := BuildServeMuxWithTuner(database, gmClient, mcpServer, metrics, tuner)
 
 	// 8. Start background batch ETL pipeline for any tracked contacts
-	StartETLForTrackedContacts(ctx, logger, database, gmClient, sessionizer, mediaIngestor, cfg.TrackedContacts, cfg.MaxBackfillMessages)
+	if cfg.PauseIngestion {
+		logger.Info().Msg("PAUSE_INGESTION is enabled: background ETL backfill and real-time DB ingestion are disabled")
+	} else {
+		StartETLForTrackedContacts(ctx, logger, database, gmClient, sessionizer, mediaIngestor, cfg.TrackedContacts, cfg.MaxBackfillMessages, func(syncCtx context.Context, contactID string) {
+			if count, ocrErr := visionService.ProcessUnprocessedAttachments(syncCtx, contactID, 50); ocrErr != nil {
+				logger.Warn().Err(ocrErr).Str("conversation_id", contactID).Msg("Vision OCR processing encountered error after ETL sync")
+			} else if count > 0 {
+				logger.Info().Int("count", count).Str("conversation_id", contactID).Msg("Processed vision OCR for attachments after ETL sync")
+			}
+			outcome, dossierErr := dossierReconciler.Reconcile(syncCtx, contactID)
+			if dossierErr != nil {
+				logger.Warn().Err(dossierErr).Str("conversation_id", contactID).Msg("Living Dossier reconciliation failed after ETL sync")
+				return
+			}
+			if outcome != nil && outcome.Changed {
+				logger.Info().Str("conversation_id", contactID).Int("version", outcome.Dossier.Version).Msg("Reconciled Living Dossier after ETL sync")
+				dispatchDossierWebhook(syncCtx, logger, webhookDispatcher, outcome.Dossier)
+			}
+		})
+	}
 
 	// 9. Configure and start HTTP server
 	httpAddr := fmt.Sprintf(":%d", cfg.HTTPPort)
