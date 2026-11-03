@@ -159,3 +159,15 @@ func TestClient_SetCookiesAndHasCookies(t *testing.T) {
 	assert.Equal(t, "extra", client.AuthData().Cookies["NID"])
 	assert.True(t, strings.Contains(strings.Join(RequiredCookieNames, ","), "SID"))
 }
+
+func TestClient_HasExistingPairing(t *testing.T) {
+	sessionPath := filepath.Join(t.TempDir(), "session.json")
+	client, err := NewClient(ClientOptions{SessionPath: sessionPath})
+	require.NoError(t, err)
+
+	assert.False(t, client.HasExistingPairing())
+
+	// Test nil client safety
+	var nilClient *Client
+	assert.False(t, nilClient.HasExistingPairing())
+}

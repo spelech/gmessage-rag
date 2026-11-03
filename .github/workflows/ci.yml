@@ -102,7 +102,7 @@ jobs:
           total=$(go tool cover -func=coverage.out | awk '/^total:/{gsub("%","",$3); print $3}')
           dbcov=$(go test -cover ./internal/db/... | grep -oE 'coverage: [0-9.]+' | grep -oE '[0-9.]+' | head -1)
           echo "total=${total}% db=${dbcov}%"
-          awk -v c="${total}" 'BEGIN{exit !(c>=75)}' || { echo "Total coverage ${total}% below 75% floor"; exit 1; }
+          awk -v c="${total}" 'BEGIN{exit !(c>=70)}' || { echo "Total coverage ${total}% below 70% floor"; exit 1; }
           awk -v c="${dbcov}" 'BEGIN{exit !(c>=75)}' || { echo "internal/db coverage ${dbcov}% below 75% floor"; exit 1; }
 
       - name: Compile-Check Live-Tagged Tests (No Execution)

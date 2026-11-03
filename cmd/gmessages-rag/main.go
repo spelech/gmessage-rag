@@ -36,6 +36,7 @@ tap the matching emoji in Google Messages on your phone.`,
 
 func init() {
 	pairCmd.Flags().StringVar(&cookiesFlag, "cookies", "", "Read cookies from this file (JSON, cURL, or Cookie header); use '-' for stdin. If omitted, cookies are read from stdin.")
+	pairCmd.Flags().StringVar(&pairSessionFlag, "session", "", "Path to session.json (defaults to data/auth/session.json or SESSION_PATH)")
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(pairCmd)
 }

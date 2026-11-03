@@ -410,3 +410,11 @@ func TestSearchSessionsHybridAllConversations(t *testing.T) {
 		t.Fatalf("expected sessions from both conversations, got found=%v (n=%d)", found, len(results))
 	}
 }
+
+func TestGetSessionsSince_UnitValidation(t *testing.T) {
+	d := &db.DB{}
+	_, err := d.GetSessionsSince(context.Background(), "", nil)
+	if err == nil {
+		t.Fatal("expected error for empty conversationID, got nil")
+	}
+}

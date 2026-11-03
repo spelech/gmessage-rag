@@ -39,8 +39,12 @@ func (p *ETLPipeline) Extract(ctx context.Context, conversationID string, count 
 	}
 
 	var nextCursor []byte
-	if resp.GetCursor() != nil && resp.GetCursor().GetLastItemID() != "" {
-		nextCursor = []byte(resp.GetCursor().GetLastItemID())
+	if c := resp.GetCursor(); c != nil && c.GetLastItemID() != "" {
+		if c.GetLastItemTimestamp() != 0 {
+			nextCursor = []byte(fmt.Sprintf("%s:%d", c.GetLastItemID(), c.GetLastItemTimestamp()))
+		} else {
+			nextCursor = []byte(c.GetLastItemID())
+		}
 	}
 
 	return resp.GetMessages(), nextCursor, nil

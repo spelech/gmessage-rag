@@ -26,6 +26,7 @@ type Config struct {
 	SessionGapHours             int
 	DossierDebounceMinutes      int
 	MaxBackfillMessages         int
+	PauseIngestion              bool
 	EnableMCPSendMessage        bool
 	MCPAccessToken              string
 	WebhookURL                  string
@@ -54,6 +55,7 @@ func LoadConfig() (*Config, error) {
 	sessionGapHours := getEnvInt("SESSION_GAP_HOURS", 2)
 	debounceMins := getEnvInt("DOSSIER_DEBOUNCE_MINUTES", 30)
 	maxBackfill := getEnvInt("MAX_BACKFILL_MESSAGES", 5000)
+	pauseIngestion := getEnvBool("PAUSE_INGESTION", false)
 	enableSend := getEnvBool("ENABLE_MCP_SEND_MESSAGE", false)
 	notifyOnDisconnect := getEnvBool("NOTIFY_ON_PHONE_DISCONNECT", false)
 	phoneGraceMinutes := getEnvInt("PHONE_DISCONNECT_GRACE_MINUTES", 15)
@@ -91,6 +93,7 @@ func LoadConfig() (*Config, error) {
 		SessionGapHours:             sessionGapHours,
 		DossierDebounceMinutes:      debounceMins,
 		MaxBackfillMessages:         maxBackfill,
+		PauseIngestion:              pauseIngestion,
 		EnableMCPSendMessage:        enableSend,
 		MCPAccessToken:              getEnv("MCP_ACCESS_TOKEN", ""),
 		WebhookURL:                  getEnv("WEBHOOK_URL", ""),

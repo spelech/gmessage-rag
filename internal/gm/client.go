@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,7 @@ type Client struct {
 	pairDone      chan struct{}
 	lastPairError error
 	currentEmoji  string
+	connecting    bool
 }
 
 // Compile-time conformance for the ingestion seams the daemon and ETL consume.
@@ -119,23 +121,50 @@ func NewClient(opts ClientOptions) (*Client, error) {
 func (c *Client) FetchMessages(ctx context.Context, conversationID string, count int64, cursor []byte) (*gmproto.ListMessagesResponse, error) {
 	var protoCursor *gmproto.Cursor
 	if len(cursor) > 0 {
-		protoCursor = &gmproto.Cursor{
-			LastItemID: string(cursor),
+		s := string(cursor)
+		if parts := strings.SplitN(s, ":", 2); len(parts) == 2 {
+			var ts int64
+			_, _ = fmt.Sscanf(parts[1], "%d", &ts)
+			protoCursor = &gmproto.Cursor{
+				LastItemID:        parts[0],
+				LastItemTimestamp: ts,
+			}
+		} else {
+			protoCursor = &gmproto.Cursor{
+				LastItemID: s,
+			}
 		}
 	}
-	return c.libgmClient.FetchMessages(ctx, conversationID, count, protoCursor)
+	resp, err := c.libgmClient.FetchMessages(ctx, conversationID, count, protoCursor)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
+}
+
+// ListConversations wraps libgm.Client.ListConversations to fetch remote conversations.
+func (c *Client) ListConversations(ctx context.Context, count int64) (*gmproto.ListConversationsResponse, error) {
+	req := &gmproto.ListConversationsRequest{
+		Count:  count,
+		Folder: gmproto.ListConversationsRequest_INBOX,
+	}
+	resp, err := c.libgmClient.ListConversations(ctx, req)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
 }
 
 // ListContacts wraps libgm.Client.ListContacts, exposing the Google Contacts roster for
 // dossier enrichment (PIPE-04).
 func (c *Client) ListContacts(ctx context.Context) (*gmproto.ListContactsResponse, error) {
-	return c.libgmClient.ListContacts(ctx)
+	resp, err := c.libgmClient.ListContacts(ctx)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
 }
 
 // ListTopContacts wraps libgm.Client.ListTopContacts, exposing the frequently contacted roster
 // for dossier enrichment (PIPE-04).
 func (c *Client) ListTopContacts(ctx context.Context) (*gmproto.ListTopContactsResponse, error) {
-	return c.libgmClient.ListTopContacts(ctx)
+	resp, err := c.libgmClient.ListTopContacts(ctx)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
 }
 
 // LibGM returns the underlying libgm.Client.
@@ -251,6 +280,7 @@ func (c *Client) handleEvent(evt any) {
 		c.logger.Error().Err(e.Error).Msg("Fatal listener error in libgm")
 		c.mu.Lock()
 		c.lastPairError = e.Error
+		c.connecting = false
 		c.mu.Unlock()
 		if c.onListenFatalError != nil {
 			c.onListenFatalError(e.Error)
@@ -265,6 +295,7 @@ func (c *Client) handleIncomingMessage(msg *gmproto.Message) {
 	if msg == nil {
 		return
 	}
+	_ = SaveAuthData(c.sessionPath, c.authData)
 
 	convID := msg.GetConversationID()
 	if convID != "" && c.onConversationActive != nil {
@@ -303,17 +334,35 @@ func (c *Client) handleTypingData(data *gmproto.TypingData) {
 }
 
 // Connect starts connection recovery or background session.
+// It is idempotent if the client is already connected or actively polling.
 func (c *Client) Connect(ctx context.Context) error {
 	if !c.libgmClient.IsLoggedIn() {
 		return errors.New("cannot connect: client is not logged in / paired")
 	}
-	return c.libgmClient.Connect(ctx)
+	c.mu.Lock()
+	if c.connecting {
+		c.mu.Unlock()
+		return nil
+	}
+	c.connecting = true
+	c.mu.Unlock()
+
+	err := c.libgmClient.Connect(ctx)
+	if err != nil {
+		c.mu.Lock()
+		c.connecting = false
+		c.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
-// ReconnectLoop handles reconnection with exponential backoff.
+// ReconnectLoop maintains connection health by periodically checking connection status
+// rather than tight-spinning on Connect().
 func (c *Client) ReconnectLoop(ctx context.Context) {
-	backoff := 1 * time.Second
+	backoff := 5 * time.Second
 	const maxBackoff = 60 * time.Second
+	const checkInterval = 15 * time.Second
 
 	for {
 		select {
@@ -331,9 +380,20 @@ func (c *Client) ReconnectLoop(ctx context.Context) {
 			}
 		}
 
-		err := c.libgmClient.Connect(ctx)
+		// If libgm is already connected, wait for checkInterval before checking again
+		if c.libgmClient.IsConnected() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(checkInterval):
+				continue
+			}
+		}
+
+		c.logger.Info().Msg("Google Messages client not connected, establishing connection...")
+		err := c.Connect(ctx)
 		if err != nil {
-			c.logger.Warn().Err(err).Dur("retry_in", backoff).Msg("Connection lost, retrying")
+			c.logger.Warn().Err(err).Dur("retry_in", backoff).Msg("Connect attempt failed, backing off")
 			select {
 			case <-ctx.Done():
 				return
@@ -341,7 +401,13 @@ func (c *Client) ReconnectLoop(ctx context.Context) {
 			}
 			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 		} else {
-			backoff = 1 * time.Second
+			backoff = 5 * time.Second
+			// Wait for connection to settle
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(checkInterval):
+			}
 		}
 	}
 }

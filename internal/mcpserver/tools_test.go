@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spelech/gmessage-rag/internal/db"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSendMessageTool_RegistrationGuard(t *testing.T) {
@@ -422,4 +424,36 @@ func TestTools_ManageTrackedContact_RealDB(t *testing.T) {
 	if reset.BackfillComplete {
 		t.Fatalf("expected backfill_complete=false after backfill, got true")
 	}
+}
+
+func TestManageTrackedContact_UnitValidation(t *testing.T) {
+	srv := NewServer(ServerOptions{
+		Name:     "test",
+		Database: nil,
+	})
+
+	// With nil DB, should return database not configured error
+	resp := srv.HandleMessage(context.Background(), &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      "test-1",
+		Method:  MethodToolsCall,
+		Params:  []byte(`{"name":"manage_tracked_contact","arguments":{"conversation_id":"c1","action":"track"}}`),
+	})
+	require.NotNil(t, resp)
+	res, ok := resp.Result.(*CallToolResult)
+	require.True(t, ok)
+	assert.True(t, res.IsError)
+}
+
+func TestParseOptionalTime(t *testing.T) {
+	pt, err := parseOptionalTime("")
+	assert.NoError(t, err)
+	assert.Nil(t, pt)
+
+	pt2, err := parseOptionalTime("2026-11-03T15:00:00Z")
+	assert.NoError(t, err)
+	assert.NotNil(t, pt2)
+
+	_, err = parseOptionalTime("invalid-time")
+	assert.Error(t, err)
 }

@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,9 +15,12 @@ import (
 	"github.com/spelech/gmessage-rag/internal/gm"
 )
 
-var cookiesFlag string
+var (
+	cookiesFlag     string
+	pairSessionFlag string
+)
 
-const cookieInstructions = `Paste your Google session cookies below, then press Ctrl-D.
+const cookieInstructions = `Paste your Google session cookies below, then press Enter on an empty line (or Ctrl-D).
 
 Easiest method:
   1. Sign in to https://messages.google.com/web in your browser.
@@ -25,6 +28,7 @@ Easiest method:
   3. Select any request to messages.google.com (for example "config").
   4. Right-click the request -> Copy -> Copy as cURL.
   5. Paste the whole cURL command here.
+  (Or save to a file and run: ./bin/gmessages-rag pair --cookies /path/to/file)
 
 JSON cookie maps and raw "Cookie: ..." headers are also accepted.
 `
@@ -41,9 +45,17 @@ func runPair(cmd *cobra.Command, args []string) error {
 
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 
-	sessionPath := gm.DefaultSessionPath
-	if envPath := os.Getenv("SESSION_PATH"); envPath != "" {
-		sessionPath = envPath
+	sessionPath := os.Getenv("SESSION_PATH")
+	if sessionPath == "" {
+		if pairSessionFlag != "" {
+			sessionPath = pairSessionFlag
+		} else if _, err := os.Stat("data/auth"); err == nil {
+			sessionPath = "data/auth/session.json"
+		} else if _, err := os.Stat("data/auth/session.json"); err == nil {
+			sessionPath = "data/auth/session.json"
+		} else {
+			sessionPath = gm.DefaultSessionPath
+		}
 	}
 
 	rawCookies, err := readCookieInput(cookiesFlag)
@@ -85,11 +97,28 @@ func runPair(cmd *cobra.Command, args []string) error {
 func readCookieInput(source string) (string, error) {
 	if source == "" || source == "-" {
 		fmt.Fprint(os.Stderr, cookieInstructions)
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
+		scanner := bufio.NewScanner(os.Stdin)
+		buf := make([]byte, 64*1024)
+		const maxCapacity = 10 * 1024 * 1024
+		scanner.Buffer(buf, maxCapacity)
+
+		var sb strings.Builder
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.TrimSpace(line) == "" && sb.Len() > 0 {
+				break
+			}
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+		if err := scanner.Err(); err != nil {
 			return "", fmt.Errorf("failed to read cookies from stdin: %w", err)
 		}
-		return string(data), nil
+		res := strings.TrimSpace(sb.String())
+		if res == "" {
+			return "", fmt.Errorf("no cookie input received")
+		}
+		return res, nil
 	}
 
 	info, statErr := os.Stat(source)

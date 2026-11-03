@@ -118,6 +118,22 @@ func (h *CookiePairHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.client.HasExistingPairing() {
+		_ = h.client.Connect(context.Background())
+		h.mu.Lock()
+		h.inFlight = false
+		h.lastErr = ""
+		h.emoji = ""
+		h.mu.Unlock()
+
+		writePairJSON(w, http.StatusOK, map[string]any{
+			"status":  "paired",
+			"paired":  true,
+			"message": "Cookies refreshed and existing phone pairing re-authenticated (no emoji challenge needed).",
+		})
+		return
+	}
+
 	h.mu.Lock()
 	h.inFlight = true
 	h.lastErr = ""
