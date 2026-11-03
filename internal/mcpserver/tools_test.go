@@ -12,53 +12,31 @@ import (
 )
 
 func TestSendMessageTool_RegistrationGuard(t *testing.T) {
-	// Guardrail default: Send-Message disabled
-	serverDefault := NewServer(ServerOptions{
-		EnableSendMessage: false,
-	})
+	// Guardrail: send_message is never registered regardless of the
+	// EnableSendMessage flag, because outbound transport wiring is not
+	// yet implemented.
 
-	listReq := &JSONRPCMessage{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  MethodToolsList,
-	}
-	resp := serverDefault.HandleMessage(context.Background(), listReq)
-	if resp == nil || resp.Error != nil {
-		t.Fatalf("expected successful tools/list response, got error: %+v", resp)
-	}
-
-	resultMap, ok := resp.Result.(map[string]any)
-	if !ok {
-		t.Fatalf("expected result map, got: %T", resp.Result)
-	}
-	tools, ok := resultMap["tools"].([]Tool)
-	if !ok {
-		t.Fatalf("expected []Tool in tools, got: %T", resultMap["tools"])
-	}
-
-	for _, tool := range tools {
-		if tool.Name == "send_message" {
-			t.Fatalf("FAIL-CLOSED VIOLATION: send_message registered when EnableSendMessage=false")
+	for _, enable := range []bool{false, true} {
+		server := NewServer(ServerOptions{EnableSendMessage: enable})
+		resp := server.HandleMessage(context.Background(), &JSONRPCMessage{
+			JSONRPC: "2.0", ID: 1, Method: MethodToolsList,
+		})
+		if resp == nil || resp.Error != nil {
+			t.Fatalf("expected successful tools/list for EnableSendMessage=%v, got: %+v", enable, resp)
 		}
-	}
-
-	// Opt-in: Send-Message enabled
-	serverOptIn := NewServer(ServerOptions{
-		EnableSendMessage: true,
-	})
-	respOptIn := serverOptIn.HandleMessage(context.Background(), listReq)
-	resultMapOptIn := respOptIn.Result.(map[string]any)
-	toolsOptIn := resultMapOptIn["tools"].([]Tool)
-
-	found := false
-	for _, tool := range toolsOptIn {
-		if tool.Name == "send_message" {
-			found = true
-			break
+		resultMap, ok := resp.Result.(map[string]any)
+		if !ok {
+			t.Fatalf("expected result map for EnableSendMessage=%v, got: %T", enable, resp.Result)
 		}
-	}
-	if !found {
-		t.Fatalf("expected send_message tool to be registered when EnableSendMessage=true")
+		tools, ok := resultMap["tools"].([]Tool)
+		if !ok {
+			t.Fatalf("expected []Tool for EnableSendMessage=%v, got: %T", enable, resultMap["tools"])
+		}
+		for _, tool := range tools {
+			if tool.Name == "send_message" {
+				t.Fatalf("send_message must NOT be registered (EnableSendMessage=%v): outbound transport not wired", enable)
+			}
+		}
 	}
 }
 

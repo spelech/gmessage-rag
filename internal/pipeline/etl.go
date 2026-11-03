@@ -48,6 +48,8 @@ func (p *ETLPipeline) Extract(ctx context.Context, conversationID string, count 
 
 // Transform maps raw protobufs to []*db.Message, normalizing timestamps with
 // gm.NormalizeTimestamp and resolving direction with gm.ResolveSenderDirection.
+// The shared gm.ProtoMessageToDBMessage helper keeps streaming and backfill
+// conversions identical (DRY).
 func (p *ETLPipeline) Transform(rawMsgs []*gmproto.Message, conversationID string) []*db.Message {
 	if len(rawMsgs) == 0 {
 		return []*db.Message{}
@@ -55,73 +57,9 @@ func (p *ETLPipeline) Transform(rawMsgs []*gmproto.Message, conversationID strin
 
 	dbMsgs := make([]*db.Message, 0, len(rawMsgs))
 	for _, rawMsg := range rawMsgs {
-		if rawMsg == nil {
-			continue
+		if dbMsg := gm.ProtoMessageToDBMessage(rawMsg, conversationID, true); dbMsg != nil {
+			dbMsgs = append(dbMsgs, dbMsg)
 		}
-
-		statusCode := int32(0)
-		if rawMsg.GetMessageStatus() != nil {
-			statusCode = int32(rawMsg.GetMessageStatus().GetStatus())
-		}
-		isFromMe, _ := gm.ResolveSenderDirection(statusCode)
-		sentAt := gm.NormalizeTimestamp(rawMsg.GetTimestamp())
-
-		var bodyText string
-		for _, info := range rawMsg.GetMessageInfo() {
-			if mc := info.GetMessageContent(); mc != nil {
-				bodyText = mc.GetContent()
-				break
-			}
-		}
-
-		var replyToID *string
-		if replyMsg := rawMsg.GetReplyMessage(); replyMsg != nil && replyMsg.GetMessageID() != "" {
-			rID := replyMsg.GetMessageID()
-			replyToID = &rID
-		}
-
-		var reactions []db.Reaction
-		for _, rEntry := range rawMsg.GetReactions() {
-			if rEntry == nil || rEntry.GetData() == nil {
-				continue
-			}
-			emoji := rEntry.GetData().GetUnicode()
-			sender := ""
-			if len(rEntry.GetParticipantIDs()) > 0 {
-				sender = rEntry.GetParticipantIDs()[0]
-			}
-			if emoji != "" {
-				reactions = append(reactions, db.Reaction{
-					Sender: sender,
-					Emoji:  emoji,
-				})
-			}
-		}
-
-		senderID := rawMsg.GetParticipantID()
-		if isFromMe {
-			senderID = "me"
-		}
-		senderName := senderID
-		if rawMsg.GetSenderParticipant() != nil && rawMsg.GetSenderParticipant().GetFullName() != "" {
-			senderName = rawMsg.GetSenderParticipant().GetFullName()
-		}
-
-		statusVal := statusCode
-		dbMsg := &db.Message{
-			ID:               rawMsg.GetMessageID(),
-			ConversationID:   conversationID,
-			SenderID:         senderID,
-			SenderName:       senderName,
-			IsFromMe:         isFromMe,
-			SentAt:           sentAt,
-			Body:             bodyText,
-			ReplyToMessageID: replyToID,
-			Reactions:        reactions,
-			RawStatus:        &statusVal,
-			IsBackfill:       true,
-		}
-		dbMsgs = append(dbMsgs, dbMsg)
 	}
 
 	return dbMsgs
