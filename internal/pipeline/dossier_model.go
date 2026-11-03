@@ -144,7 +144,7 @@ func (m *openAIDossierModel) Reconcile(ctx context.Context, req DossierReconcile
 		return nil, fmt.Errorf("read dossier response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("dossier completion failed with status %d: %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("dossier completion failed with status %d: %s", resp.StatusCode, SanitizeSecret(string(respBytes), m.apiKey))
 	}
 
 	var chatResp dossierChatResponse

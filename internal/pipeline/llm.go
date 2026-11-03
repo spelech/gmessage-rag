@@ -173,7 +173,7 @@ func (c *openAIClient) GenerateSummary(ctx context.Context, transcript string) (
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("chat completion failed with status %d: %s", resp.StatusCode, string(respBytes))
+		return "", "", fmt.Errorf("chat completion failed with status %d: %s", resp.StatusCode, SanitizeSecret(string(respBytes), c.llmAPIKey))
 	}
 
 	var chatResp chatCompletionResponse
@@ -275,7 +275,7 @@ func (c *openAIClient) GenerateEmbedding(ctx context.Context, text string) ([]fl
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("embedding failed with status %d: %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("embedding failed with status %d: %s", resp.StatusCode, SanitizeSecret(string(respBytes), c.embeddingAPIKey))
 	}
 
 	var embResp embeddingResponse

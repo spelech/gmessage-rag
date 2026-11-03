@@ -209,6 +209,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Logger:                  logger.With().Str("component", "watchdog").Logger(),
 	})
 
+	// Prometheus metrics registry, wired by the callbacks below. Must be
+	// declared before the OnFlush and OnMessageUpsert closures (those closures
+	// capture by reference through the function scope).
+	metrics := obs.NewMetricsRegistry()
+
 	webhookDispatcher := notify.NewWebhookDispatcher(notify.WebhookConfig{
 		URL:         cfg.WebhookURL,
 		BearerToken: cfg.WebhookAuthToken,
@@ -262,9 +267,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// OCR stored image attachments on the next debounced flush (SEC-01). The
 	// downloader is attached once gmClient exists below.
 	mediaIngestor := &pipeline.MediaIngestor{
-		Database: database,
-		MediaDir: cfg.MediaDir,
-		Logger:   logger.With().Str("component", "media").Logger(),
+		Database:          database,
+		MediaDir:          cfg.MediaDir,
+		PullFullSizeMedia: cfg.PullFullSizeMedia,
+		Logger:            logger.With().Str("component", "media").Logger(),
 	}
 	dossierReconciler := pipeline.NewDossierReconciler(pipeline.DossierReconcilerConfig{
 		Store:     database,
@@ -298,6 +304,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			logger.Info().Str("conversation_id", conversationID).Int("session_count", len(sessions)).Msg("Completed sessionization on flush")
+			metrics.SessionChunksCreatedTotal().Add(float64(len(sessions)))
 			// Reconcile the Living Dossier from the freshly sessionized messages (PIPE-03 / PIPE-04)
 			outcome, dossierErr := dossierReconciler.Reconcile(flushCtx, conversationID)
 			if dossierErr != nil {
@@ -327,6 +334,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 		OnTypingActivity: func(conversationID string, typingType gmproto.TypingTypes) {
 			debouncer.RecordTypingType(conversationID, typingType)
 		},
+		// OnMessageUpsert persists real-time inbound messages. Without this
+		// callback, handleIncomingMessage drops them silently and only the
+		// historical backfill path ever writes to Postgres.
+		OnMessageUpsert: func(upsertCtx context.Context, msg *gmproto.Message, isFromMe bool, _ time.Time) error {
+			if msg == nil {
+				return nil
+			}
+			conversationID := msg.GetConversationID()
+			dbMsg := gm.ProtoMessageToDBMessage(msg, conversationID, false)
+			if dbMsg == nil {
+				return nil
+			}
+			if upsertErr := database.UpsertMessage(upsertCtx, dbMsg); upsertErr != nil {
+				logger.Error().Err(upsertErr).Str("conversation_id", conversationID).Str("message_id", dbMsg.ID).Msg("Failed to persist inbound message")
+				return upsertErr
+			}
+
+			// Record Prometheus metric (OBS-01).
+			direction := obs.DirectionInbound
+			if isFromMe {
+				direction = obs.DirectionOutbound
+			}
+			metrics.RecordMessageIngested(direction, obs.ProtocolRCS)
+
+			// Download and persist any media attachments on this message (SEC-01).
+			// The downloader on mediaIngestor is set before Connect, so it is
+			// ready when real-time messages arrive.
+			if mediaIngestor != nil && mediaIngestor.Downloader != nil {
+				if _, mediaErr := mediaIngestor.IngestMessage(upsertCtx, msg); mediaErr != nil {
+					logger.Warn().Err(mediaErr).Str("conversation_id", conversationID).Str("message_id", dbMsg.ID).Msg("Failed to download media for inbound message")
+				}
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize Google Messages client: %w", err)
@@ -341,8 +382,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		logger.Warn().Msg("Google Messages session is not paired. Run 'pair' or navigate to /pair to authenticate.")
 	}
 
-	// 7. Initialize Metrics, MCP Server, Runtime Tuner, and Root Mux
-	metrics := obs.NewMetricsRegistry()
+	// 7. Initialize MCP Server, Runtime Tuner, and Root Mux
 	mcpServer := mcpserver.NewServer(mcpserver.ServerOptions{
 		Name:              "gmessages-rag",
 		Version:           "0.1.0",
