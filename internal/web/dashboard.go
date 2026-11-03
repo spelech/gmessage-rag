@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -53,6 +54,7 @@ func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *c
 	// Pairing QR visualization endpoint
 	if gmClient != nil {
 		pairingHandler := gm.NewPairingHandler(gmClient)
+		go pairingHandler.Start(context.Background())
 		mux.Handle("/pair", pairingHandler)
 	}
 

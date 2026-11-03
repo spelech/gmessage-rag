@@ -18,10 +18,13 @@ import (
 // operator's Google account. It is quarantined behind the `live` build tag and
 // only runs when LIVE_GM_TEST=1 and a dedicated SESSION_PATH is supplied.
 //
-// Run manually (operator approves the Gaia emoji on their phone and sends one
-// test message from the paired phone during the wait window):
+// Pairing method is controlled by PAIR_METHOD (default "qr"):
+//   qr   — prints a QR code to stdout; scan with Google Messages app
+//   gaia — prints a Gaia emoji; approve on phone (requires Google Cloud OAuth)
 //
-//	GM_ALLOW_NETWORK=1 LIVE_GM_TEST=1 \
+// Run manually (pair with QR, send one test message during the wait window):
+//
+//	GM_ALLOW_NETWORK=1 LIVE_GM_TEST=1 PAIR_METHOD=qr \
 //	  SESSION_PATH=/tmp/live-smoke-session.json \
 //	  DATABASE_URL=postgres://... \
 //	  go test -tags live -race -v -timeout 5m -run TestLiveSmoke_EndToEnd ./internal/gm/
@@ -63,12 +66,23 @@ func TestLiveSmoke_EndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 3. Pair via Gaia emoji. The operator approves the emoji on their phone.
+	// 3. Pair with the configured method (qr or gaia).
 	if !client.LibGM().IsLoggedIn() {
-		err = client.PairGaia(ctx, func(emoji string) {
-			t.Logf("Gaia pairing challenge emoji: %s — approve it on your phone", emoji)
-		})
-		require.NoError(t, err, "Gaia pairing should complete after operator approval")
+		pairMethod := os.Getenv("PAIR_METHOD")
+		if pairMethod == "" {
+			pairMethod = "qr"
+		}
+		switch pairMethod {
+		case "gaia":
+			err = client.PairGaia(ctx, func(emoji string) {
+				t.Logf("Gaia pairing challenge emoji: %s — approve it on your phone", emoji)
+			})
+			require.NoError(t, err, "Gaia pairing should complete after operator approval")
+		default:
+			t.Log("Starting QR pairing — scan the QR code below in Google Messages → Device Pairing")
+			err = client.PairCLI(ctx)
+			require.NoError(t, err, "QR pairing should complete after scanning the code")
+		}
 	}
 
 	// 4. Session must be saved with 0600 permissions.
