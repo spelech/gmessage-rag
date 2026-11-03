@@ -31,25 +31,37 @@ type ConversationActivityFunc func(conversationID string)
 // TypingActivityFunc is called when a participant typing indicator arrives for a conversation (PIPE-05).
 type TypingActivityFunc func(conversationID string, typingType gmproto.TypingTypes)
 
+// PhoneStatusFunc is called when phone responsiveness state changes (TRANS-04).
+type PhoneStatusFunc func()
+
+// FatalErrorFunc is called when libgm encounters an unrecoverable listener error (AUTH-03).
+type FatalErrorFunc func(err error)
+
 // ClientOptions configures the GM client wrapper.
 type ClientOptions struct {
-	SessionPath          string
-	Logger               zerolog.Logger
-	OnMessageUpsert      MessageUpsertFunc
-	OnConversationActive ConversationActivityFunc
-	OnTypingActivity     TypingActivityFunc
-	HTTPClientSettings   *exhttp.ClientSettings
+	SessionPath            string
+	Logger                 zerolog.Logger
+	OnMessageUpsert        MessageUpsertFunc
+	OnConversationActive   ConversationActivityFunc
+	OnTypingActivity       TypingActivityFunc
+	OnPhoneNotResponding   PhoneStatusFunc
+	OnPhoneRespondingAgain PhoneStatusFunc
+	OnListenFatalError     FatalErrorFunc
+	HTTPClientSettings     *exhttp.ClientSettings
 }
 
 // Client wraps libgm.Client with session lifecycle, normalization, and event dispatch.
 type Client struct {
-	libgmClient          *libgm.Client
-	authData             *libgm.AuthData
-	sessionPath          string
-	logger               zerolog.Logger
-	onMessageUpsert      MessageUpsertFunc
-	onConversationActive ConversationActivityFunc
-	onTypingActivity     TypingActivityFunc
+	libgmClient            *libgm.Client
+	authData               *libgm.AuthData
+	sessionPath            string
+	logger                 zerolog.Logger
+	onMessageUpsert        MessageUpsertFunc
+	onConversationActive   ConversationActivityFunc
+	onTypingActivity       TypingActivityFunc
+	onPhoneNotResponding   PhoneStatusFunc
+	onPhoneRespondingAgain PhoneStatusFunc
+	onListenFatalError     FatalErrorFunc
 
 	mu            sync.RWMutex
 	pairDone      chan struct{}
@@ -85,14 +97,17 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	libgmCli := newLibGMClient(authData, nil, opts.Logger, httpSettings)
 
 	c := &Client{
-		libgmClient:          libgmCli,
-		authData:             authData,
-		sessionPath:          sessionPath,
-		logger:               opts.Logger,
-		onMessageUpsert:      opts.OnMessageUpsert,
-		onConversationActive: opts.OnConversationActive,
-		onTypingActivity:     opts.OnTypingActivity,
-		pairDone:             make(chan struct{}),
+		libgmClient:            libgmCli,
+		authData:               authData,
+		sessionPath:            sessionPath,
+		logger:                 opts.Logger,
+		onMessageUpsert:        opts.OnMessageUpsert,
+		onConversationActive:   opts.OnConversationActive,
+		onTypingActivity:       opts.OnTypingActivity,
+		onPhoneNotResponding:   opts.OnPhoneNotResponding,
+		onPhoneRespondingAgain: opts.OnPhoneRespondingAgain,
+		onListenFatalError:     opts.OnListenFatalError,
+		pairDone:               make(chan struct{}),
 	}
 
 	libgmCli.SetEventHandler(c.handleEvent)
@@ -221,11 +236,26 @@ func (c *Client) handleEvent(evt any) {
 	case *gmproto.TypingData:
 		c.handleTypingData(e)
 
+	case *events.PhoneNotResponding:
+		c.logger.Warn().Msg("Phone is not responding")
+		if c.onPhoneNotResponding != nil {
+			c.onPhoneNotResponding()
+		}
+
+	case *events.PhoneRespondingAgain:
+		c.logger.Info().Msg("Phone is responding again")
+		if c.onPhoneRespondingAgain != nil {
+			c.onPhoneRespondingAgain()
+		}
+
 	case *events.ListenFatalError:
 		c.logger.Error().Err(e.Error).Msg("Fatal listener error in libgm")
 		c.mu.Lock()
 		c.lastPairError = e.Error
 		c.mu.Unlock()
+		if c.onListenFatalError != nil {
+			c.onListenFatalError(e.Error)
+		}
 
 	default:
 		c.logger.Trace().Type("event_type", evt).Msg("Received other libgm event")

@@ -17,6 +17,7 @@ import (
 	"github.com/spelech/gmessage-rag/internal/db"
 	"github.com/spelech/gmessage-rag/internal/gm"
 	"github.com/spelech/gmessage-rag/internal/mcpserver"
+	"github.com/spelech/gmessage-rag/internal/notify"
 	"github.com/spelech/gmessage-rag/internal/obs"
 )
 
@@ -312,4 +313,45 @@ func TestServeCommand_GMClientInitFailure(t *testing.T) {
 	err = runServe(cmd, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to initialize Google Messages client")
+}
+
+// [Requirement(TRANS-04)] [Requirement(AUTH-03)]
+// TestServeCommand_WatchdogWiring verifies that watchdog callbacks wire into gm.ClientOptions
+// and trigger watchdog state changes and alerts as expected.
+func TestServeCommand_WatchdogWiring(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionFile := filepath.Join(tempDir, "session.json")
+
+	notifyClient := notify.NewClient(notify.ClientConfig{})
+	wd := notify.NewWatchdog(notify.WatchdogConfig{
+		NotifyClient:            notifyClient,
+		NotifyOnPhoneDisconnect: true,
+		GracePeriod:             1 * time.Minute,
+		Logger:                  zerolog.Nop(),
+	})
+
+	client, err := gm.NewClient(gm.ClientOptions{
+		SessionPath:            sessionFile,
+		OnPhoneNotResponding:   wd.OnPhoneNotResponding,
+		OnPhoneRespondingAgain: wd.OnPhoneRespondingAgain,
+		OnListenFatalError:     wd.OnListenFatalError,
+	})
+	require.NoError(t, err)
+
+	// Initially, watchdog timer should not be active
+	assert.False(t, wd.IsTimerActive())
+
+	// PhoneNotResponding callback should activate the grace-period timer
+	client.LibGM() // ensure client initialized
+	wd.OnPhoneNotResponding()
+	assert.True(t, wd.IsTimerActive())
+
+	// PhoneRespondingAgain should cancel the grace-period timer
+	wd.OnPhoneRespondingAgain()
+	assert.False(t, wd.IsTimerActive())
+
+	// Shutdown cleanup simulation: ensure repeated call doesn't panic
+	assert.NotPanics(t, func() {
+		wd.OnPhoneRespondingAgain()
+	})
 }

@@ -363,3 +363,69 @@ func TestClient_EventHandling_AllBranches(t *testing.T) {
 	client.handleIncomingMessage(dummyMsg)
 	assert.Equal(t, 1, upsertCallCount)
 }
+
+// [Requirement(TRANS-04)] [Requirement(AUTH-03)]
+// TestClient_WatchdogEventsDispatch validates that PhoneNotResponding, PhoneRespondingAgain,
+// and ListenFatalError events trigger configured watchdog callbacks.
+func TestClient_WatchdogEventsDispatch(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+
+	var (
+		mu                 sync.Mutex
+		phoneNotResponding int
+		phoneResponding    int
+		fatalErrReceived   error
+	)
+
+	client, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+		OnPhoneNotResponding: func() {
+			mu.Lock()
+			phoneNotResponding++
+			mu.Unlock()
+		},
+		OnPhoneRespondingAgain: func() {
+			mu.Lock()
+			phoneResponding++
+			mu.Unlock()
+		},
+		OnListenFatalError: func(err error) {
+			mu.Lock()
+			fatalErrReceived = err
+			mu.Unlock()
+		},
+	})
+	require.NoError(t, err)
+
+	// 1. PhoneNotResponding dispatch
+	client.handleEvent(&events.PhoneNotResponding{})
+	mu.Lock()
+	assert.Equal(t, 1, phoneNotResponding)
+	mu.Unlock()
+
+	// 2. PhoneRespondingAgain dispatch
+	client.handleEvent(&events.PhoneRespondingAgain{})
+	mu.Lock()
+	assert.Equal(t, 1, phoneResponding)
+	mu.Unlock()
+
+	// 3. ListenFatalError dispatch
+	expectedFatal := errors.New("unrecoverable stream closure")
+	client.handleEvent(&events.ListenFatalError{Error: expectedFatal})
+	mu.Lock()
+	assert.Equal(t, expectedFatal, fatalErrReceived)
+	mu.Unlock()
+
+	// 4. Client with nil callbacks must handle events without panic
+	plainClient, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+	})
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		plainClient.handleEvent(&events.PhoneNotResponding{})
+		plainClient.handleEvent(&events.PhoneRespondingAgain{})
+		plainClient.handleEvent(&events.ListenFatalError{Error: errors.New("nil-cb error")})
+	})
+}
