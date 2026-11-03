@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -188,7 +191,10 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 // TestServeCommand_Lifecycle verifies the full daemon initialization, HTTP server start, and graceful shutdown sequence.
 func TestServeCommand_Lifecycle(t *testing.T) {
-	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	}
 	testDB, err := db.Connect(context.Background(), dbURL)
 	if err != nil {
 		t.Skipf("skipping live serve lifecycle test: %v", err)
@@ -200,7 +206,13 @@ func TestServeCommand_Lifecycle(t *testing.T) {
 	sessionFile := filepath.Join(tempDir, "session.json")
 	t.Setenv("SESSION_PATH", sessionFile)
 	t.Setenv("DATABASE_URL", dbURL)
-	t.Setenv("HTTP_PORT", "38194")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+
+	t.Setenv("HTTP_PORT", fmt.Sprintf("%d", port))
 	t.Setenv("TRACKED_CONTACTS", "test-tracked-contact-1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
@@ -215,7 +227,10 @@ func TestServeCommand_Lifecycle(t *testing.T) {
 
 // TestStartETLForTrackedContacts_Execution verifies background ETL synchronization pass.
 func TestStartETLForTrackedContacts_Execution(t *testing.T) {
-	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	}
 	database, err := db.Connect(context.Background(), dbURL)
 	if err != nil {
 		t.Skipf("skipping ETL execution test: %v", err)
@@ -234,8 +249,16 @@ func TestStartETLForTrackedContacts_Execution(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	StartETLForTrackedContacts(ctx, logger, database, client, nil, nil, []string{"tracked-1", "tracked-2"}, 50)
-	time.Sleep(50 * time.Millisecond)
+	done := make(chan struct{})
+	StartETLForTrackedContacts(ctx, logger, database, client, nil, nil, []string{"tracked-1", "tracked-2"}, 50, func(context.Context, string) {
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+	})
+	cancel()
+	time.Sleep(100 * time.Millisecond)
 }
 
 // TestRootCmd_Help exercises rootCmd Run function.
@@ -258,7 +281,10 @@ func TestPairCommand_DefaultSessionPath(t *testing.T) {
 
 // TestServeCommand_ServerListenError verifies handling of server listen errors.
 func TestServeCommand_ServerListenError(t *testing.T) {
-	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	}
 	testDB, err := db.Connect(context.Background(), dbURL)
 	if err != nil {
 		t.Skipf("skipping live serve test: %v", err)
@@ -307,7 +333,10 @@ func TestPairCommand_CookieFileNotFound(t *testing.T) {
 
 // TestServeCommand_GMClientInitFailure verifies error returned when GM client fails initialization.
 func TestServeCommand_GMClientInitFailure(t *testing.T) {
-	dbURL := "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://jules:@127.0.0.1:5432/gmessages?sslmode=disable"
+	}
 	testDB, err := db.Connect(context.Background(), dbURL)
 	if err != nil {
 		t.Skipf("skipping live serve test: %v", err)

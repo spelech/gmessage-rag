@@ -69,3 +69,23 @@ func TestCookiePairHandler(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "not configured")
 	})
 }
+
+func TestCookiePairHandler_JSONSubmission(t *testing.T) {
+	handler := NewCookiePairHandler(nil)
+	req := httptest.NewRequest(http.MethodPost, "/pair", strings.NewReader(`{"cookies":"invalid"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestCookiePairHandler_FormSubmission(t *testing.T) {
+	handler := NewCookiePairHandler(nil)
+	req := httptest.NewRequest(http.MethodPost, "/pair", strings.NewReader("cookies=invalid"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
