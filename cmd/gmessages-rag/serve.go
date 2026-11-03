@@ -368,6 +368,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			return nil
 		},
+		OnPhoneNotResponding:   watchdog.OnPhoneNotResponding,
+		OnPhoneRespondingAgain: watchdog.OnPhoneRespondingAgain,
+		OnListenFatalError:     watchdog.OnListenFatalError,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize Google Messages client: %w", err)
@@ -438,7 +441,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		logger.Error().Err(err).Msg("HTTP server graceful shutdown failed")
 	}
 
-	_ = watchdog
+	// Cancel any active watchdog grace period timers during orderly shutdown
+	watchdog.OnPhoneRespondingAgain()
+
 	logger.Info().Msg("Daemon stopped cleanly")
 	return nil
 }
