@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -25,7 +24,7 @@ func NewDashboard(database *db.DB, gmClient *gm.Client) http.Handler {
 // - GET /api/v1/status
 // - GET /api/v1/contacts
 // - POST /api/v1/contacts/track
-// - GET /pair (QR pairing visualization via gm.NewPairingHandler)
+// - GET/POST /pair (cookie-import pairing UI and API)
 func NewDashboardHandler(database *db.DB, gmClient *gm.Client) http.Handler {
 	return NewDashboardHandlerWithTuner(database, gmClient, nil)
 }
@@ -38,7 +37,7 @@ func NewDashboardHandler(database *db.DB, gmClient *gm.Client) http.Handler {
 // - GET /api/v1/tuner
 // - POST /api/v1/tuner
 // - GET /api/v1/briefing and GET /api/v1/briefing/today
-// - GET /pair (QR pairing visualization via gm.NewPairingHandler)
+// - GET/POST /pair (cookie-import pairing UI and API)
 func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner) http.Handler {
 	mux := http.NewServeMux()
 	api := NewAPIHandlerWithTuner(database, gmClient, tuner)
@@ -51,11 +50,9 @@ func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *c
 	mux.HandleFunc("/api/v1/briefing", api.HandleBriefing)
 	mux.HandleFunc("/api/v1/briefing/today", api.HandleBriefing)
 
-	// Pairing QR visualization endpoint
+	// Cookie-import pairing endpoint. Device pairing uses cookie import.
 	if gmClient != nil {
-		pairingHandler := gm.NewPairingHandler(gmClient)
-		go pairingHandler.Start(context.Background())
-		mux.Handle("/pair", pairingHandler)
+		mux.Handle("/pair", NewCookiePairHandler(gmClient))
 	}
 
 	// Dashboard UI handler

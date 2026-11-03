@@ -19,7 +19,7 @@
 ## Key Capabilities
 
 1. **Matrix-Free Real-Time RCS/SMS Sync:**
-   - Pairs via terminal QR (`gmessages-rag pair`), live web QR (`GET /pair`), or single-device Google Account emoji challenge (`gmessages-rag pair --gaia`, `AUTH-04`).
+   - Pairs via cookie import (`gmessages-rag pair --cookies` or the web dashboard `/pair`), followed by the single-device Google Account (Gaia) emoji challenge (`AUTH-04`).
    - Ingests incoming/outgoing messages, emoji reactions, and reply chains into PostgreSQL 17.
    - Paginates historical message backfills via standardized 3-stage batch ETL (`PIPE-06`).
 2. **Content-Addressed Media & Vision OCR Pipeline:**
@@ -38,7 +38,7 @@
    - Provides 6 core tools: `list_conversations`, `get_contact_dossier`, `search_conversation_history`, `get_messages_around_time`, `search_shared_media`, and `manage_tracked_contact`.
    - Encloses all raw external conversational text and OCR in `<untrusted_conversation_data>` XML guardrails (`GUARD-01`).
 6. **Embedded Web Management UI & Diagnostic Test Bench:**
-   - Web Management Dashboard on `/` and `/dashboard` with tracked contact toggles and live QR pairing visualizer (`UI-01`).
+   - Web Management Dashboard on `/` and `/dashboard` with tracked contact toggles and cookie-import pairing console (`UI-01`).
    - Context-Cortex style Developer Diagnostic Test Bench on `/testbench` for ad-hoc MCP testing, Hybrid RRF scoring inspection, and XML boundary auditing (`UI-02`).
    - Hot-reloadable runtime parameter tuner on `/api/v1/tuner` (`UI-03`).
 7. **Observability, Watchdog & Push Alerting:**
@@ -95,24 +95,26 @@ docker compose logs -f gmessages-rag
 
 ### 3. Pair with Google Messages
 
-#### Option A: Single-Device Gaia Emoji Pairing (No Camera Scanning - Recommended)
-If pairing from a single mobile device or remote terminal:
+Device pairing uses cookie import. Import Google session cookies from a signed-in browser.
+
+1. Sign in to [https://messages.google.com/web](https://messages.google.com/web) in your browser.
+2. Open DevTools (`F12`) and switch to the **Network** tab.
+3. Select a request to `messages.google.com` (for example `config`).
+4. Right-click the request and choose **Copy** → **Copy as cURL**.
+
+#### Option A: CLI (Recommended)
 ```bash
-# Terminal execution
-docker compose exec -it gmessages-rag gmessages-rag pair --gaia
-
-# Or open in your browser
-# http://localhost:8090/pair/gaia
+docker compose exec -it gmessages-rag gmessages-rag pair --cookies -
 ```
-The daemon requests a pairing challenge and prints an emoji (e.g. 🚀). Open Google Messages on your phone, go to **Device Pairing**, and tap the matching emoji.
+Paste the cURL command, then press Ctrl-D. The daemon validates the cookies, saves the session, and starts the Gaia emoji challenge. Open Google Messages on your phone, go to **Device Pairing**, and tap the matching emoji.
 
-#### Option B: Live Web Browser QR Visualizer
-Open [http://localhost:8090/pair](http://localhost:8090/pair) in your web browser. Open Google Messages on your Android phone, select **Device Pairing -> QR code scanner**, and scan the QR code displayed on screen.
-
-#### Option C: Terminal QR Code
+You can also read cookies from a file:
 ```bash
-docker compose exec -it gmessages-rag gmessages-rag pair
+docker compose exec -it gmessages-rag gmessages-rag pair --cookies /data/auth/google-cookies.txt
 ```
+
+#### Option B: Web Dashboard
+Open [http://localhost:8090/pair](http://localhost:8090/pair) in your web browser. Paste the cURL command into the text area and select **Pair with cookies**. The page shows the Gaia emoji challenge when Google accepts the cookies.
 
 ---
 

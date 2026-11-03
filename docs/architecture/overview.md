@@ -12,7 +12,7 @@ flowchart TD
 
     subgraph Daemon["gmessages-rag Daemon (Go 1.24+)"]
         subgraph Ingestion["gm (libgm Client)"]
-            Pairing["Pairing Handler<br>(CLI QR / Web GET /pair)"]
+            Pairing["Cookie Import Pairing<br>(CLI --cookies / Web GET+POST /pair)"]
             EventLoop["libgm Event Switch<br>(Incoming / Outgoing / Reactions)"]
             MediaHandler["Media Decryptor<br>(SHA-256 Storage)"]
             Backfill["Historical Pagination<br>(FetchMessages loop)"]

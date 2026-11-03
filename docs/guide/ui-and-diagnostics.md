@@ -24,18 +24,18 @@ The Management Dashboard is served at `GET /` and `GET /dashboard`. It provides 
 
 ---
 
-## 2. Terminal & Web QR Visualizer (`AUTH-01`, `AUTH-04`)
+## 2. Cookie Import Pairing Console (`AUTH-01`, `AUTH-02`, `AUTH-04`)
 
-When pairing a new Android phone running Google Messages, `gmessages-rag` offers two pairing modalities:
+Google Messages no longer offers QR device pairing. `gmessages-rag` pairs by importing Google session cookies copied from a signed-in browser, followed by the single-device Gaia emoji challenge.
 
-### Web Pairing Visualizer (`/pair`)
-- Serves an embedded SVG/PNG QR code rendered via `github.com/skip2/go-qrcode`.
-- Auto-refreshes every 30 seconds until the phone camera scans the code.
-- Automatically transitions the UI to "Paired & Connected" upon approval via `PairingHandler.Start`.
+### Web Cookie Import Console (`/pair`)
+- Serves an HTML text area that accepts a cURL command, a raw `Cookie:` header, JSON maps/arrays, or semicolon pairs.
+- Validates the required Google cookies (`SID`, `HSID`, `OSID`, `SSID`, `APISID`, `SAPISID`) and rejects invalid sessions without printing cookie values.
+- Persists the validated session and starts the Gaia emoji challenge. The page polls `/pair?format=json` and displays the target emoji.
 
-### Single-Device Gaia Emoji Pairing (`AUTH-04`)
-- Available at `/pair/gaia` or via CLI: `gmessages-rag pair --gaia`.
-- Does **not** require scanning with a camera. Google sends a 3-emoji challenge to the phone; the terminal/web UI displays the matching target emoji.
+### Single-Device Gaia Emoji Challenge (`AUTH-04`)
+- Runs automatically after the cookies validate, or via CLI: `gmessages-rag pair --cookies -`.
+- Google sends a 3-emoji challenge to the phone; the terminal/web UI displays the matching target emoji.
 - Selecting the matching emoji on your phone approves the paired session.
 
 ---

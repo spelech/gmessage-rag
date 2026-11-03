@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/rs/zerolog"
@@ -13,11 +15,22 @@ import (
 	"github.com/spelech/gmessage-rag/internal/gm"
 )
 
-var (
-	gaiaFlag bool
-)
+var cookiesFlag string
 
-// runPair executes terminal-based pairing (QR terminal or Gaia emoji pairing).
+const cookieInstructions = `Paste your Google session cookies below, then press Ctrl-D.
+
+Easiest method:
+  1. Sign in to https://messages.google.com/web in your browser.
+  2. Open DevTools (F12) -> Network tab.
+  3. Select any request to messages.google.com (for example "config").
+  4. Right-click the request -> Copy -> Copy as cURL.
+  5. Paste the whole cURL command here.
+
+JSON cookie maps and raw "Cookie: ..." headers are also accepted.
+`
+
+// runPair pairs Google Messages by importing Google session cookies and then
+// starting the Gaia emoji challenge. Device pairing uses cookie import.
 func runPair(cmd *cobra.Command, args []string) error {
 	parentCtx := cmd.Context()
 	if parentCtx == nil {
@@ -28,47 +41,73 @@ func runPair(cmd *cobra.Command, args []string) error {
 
 	logger := zerolog.New(os.Stderr).With().Timestamp().Logger()
 
-	sessionPath := "/data/auth/session.json"
-	// Check if environment specifies a custom auth directory/session path or fallback
+	sessionPath := gm.DefaultSessionPath
 	if envPath := os.Getenv("SESSION_PATH"); envPath != "" {
 		sessionPath = envPath
 	}
 
-	opts := gm.ClientOptions{
+	rawCookies, err := readCookieInput(cookiesFlag)
+	if err != nil {
+		return err
+	}
+
+	cookies, err := gm.ParseCookies(rawCookies)
+	if err != nil {
+		return fmt.Errorf("invalid cookies: %w", err)
+	}
+
+	client, err := gm.NewClient(gm.ClientOptions{
 		SessionPath: sessionPath,
 		Logger:      logger.With().Str("component", "pairing").Logger(),
-	}
-
-	if gaiaFlag {
-		fmt.Println("Initiating Google Account (Gaia) single-device pairing challenge (AUTH-04)...")
-		gaiaClient, err := gm.NewGaiaClient(opts)
-		if err != nil {
-			return fmt.Errorf("failed to initialize gaia client: %w", err)
-		}
-
-		err = gaiaClient.PairGaia(ctx, func(emoji string) {
-			fmt.Println("\n=======================================================")
-			fmt.Printf(" [!] GAIA PAIRING CHALLENGE EMOJI: %s\n", emoji)
-			fmt.Println(" Open Google Messages on your phone and select this emoji!")
-			fmt.Println("=======================================================")
-		})
-		if err != nil {
-			return fmt.Errorf("gaia pairing error: %w", err)
-		}
-		fmt.Printf("Gaia pairing successful! Session persisted to %s\n", sessionPath)
-		return nil
-	}
-
-	fmt.Println("Initiating Google Messages QR terminal pairing session...")
-	client, err := gm.NewClient(opts)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize pairing client: %w", err)
 	}
 
-	if err := client.PairCLI(ctx); err != nil {
-		return fmt.Errorf("terminal pairing error: %w", err)
+	err = client.PairWithCookies(ctx, cookies, func(emoji string) {
+		fmt.Println("\n=======================================================")
+		fmt.Printf(" [!] GAIA PAIRING CHALLENGE EMOJI: %s\n", emoji)
+		fmt.Println(" Open Google Messages on your phone, go to Device Pairing,")
+		fmt.Println(" and tap the matching emoji.")
+		fmt.Println("=======================================================")
+	})
+	if err != nil {
+		return fmt.Errorf("cookie pairing error: %w", err)
 	}
 
-	fmt.Printf("Terminal pairing successful! Session persisted to %s\n", sessionPath)
+	fmt.Printf("Pairing successful! Session persisted to %s\n", sessionPath)
 	return nil
+}
+
+// readCookieInput resolves the --cookies value. An empty value or "-" reads
+// from stdin. An existing file path is read from disk. Anything else is treated
+// as inline cookie text (JSON, cURL, or a raw Cookie header).
+func readCookieInput(source string) (string, error) {
+	if source == "" || source == "-" {
+		fmt.Fprint(os.Stderr, cookieInstructions)
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("failed to read cookies from stdin: %w", err)
+		}
+		return string(data), nil
+	}
+
+	info, statErr := os.Stat(source)
+	if statErr == nil && !info.IsDir() {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return "", fmt.Errorf("failed to read cookie file %s: %w", source, err)
+		}
+		return string(data), nil
+	}
+
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return "", fmt.Errorf("failed to inspect cookie source %s: %w", source, statErr)
+	}
+
+	if strings.ContainsAny(source, "{[=;") || strings.Contains(strings.ToLower(source), "curl") || strings.Contains(strings.ToLower(source), "cookie:") {
+		return source, nil
+	}
+
+	return "", fmt.Errorf("cookie file not found: %s", source)
 }

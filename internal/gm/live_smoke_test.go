@@ -4,6 +4,8 @@ package gm
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -18,13 +20,15 @@ import (
 // operator's Google account. It is quarantined behind the `live` build tag and
 // only runs when LIVE_GM_TEST=1 and a dedicated SESSION_PATH is supplied.
 //
-// Pairing method is controlled by PAIR_METHOD (default "qr"):
-//   qr   — prints a QR code to stdout; scan with Google Messages app
-//   gaia — prints a Gaia emoji; approve on phone (requires Google Cloud OAuth)
+// Authentication uses Google session cookies. Device pairing uses cookie import.
+// Supply cookies inline through COOKIES, or point COOKIES_PATH at a file that
+// contains a cURL command, JSON map, or raw Cookie header. An already-paired
+// session at SESSION_PATH is also accepted, so repeat runs do not need cookies.
 //
-// Run manually (pair with QR, send one test message during the wait window):
+// Run manually (send one test message during the wait window):
 //
-//	GM_ALLOW_NETWORK=1 LIVE_GM_TEST=1 PAIR_METHOD=qr \
+//	GM_ALLOW_NETWORK=1 LIVE_GM_TEST=1 \
+//	  COOKIES_PATH=/tmp/google-cookies.txt \
 //	  SESSION_PATH=/tmp/live-smoke-session.json \
 //	  DATABASE_URL=postgres://... \
 //	  go test -tags live -race -v -timeout 5m -run TestLiveSmoke_EndToEnd ./internal/gm/
@@ -66,23 +70,17 @@ func TestLiveSmoke_EndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 3. Pair with the configured method (qr or gaia).
+	// 3. Authenticate from an existing session or imported cookies. Device pairing
+	// is not supported. A pre-paired session skips the import path entirely.
 	if !client.LibGM().IsLoggedIn() {
-		pairMethod := os.Getenv("PAIR_METHOD")
-		if pairMethod == "" {
-			pairMethod = "qr"
-		}
-		switch pairMethod {
-		case "gaia":
-			err = client.PairGaia(ctx, func(emoji string) {
-				t.Logf("Gaia pairing challenge emoji: %s — approve it on your phone", emoji)
-			})
-			require.NoError(t, err, "Gaia pairing should complete after operator approval")
-		default:
-			t.Log("Starting QR pairing — scan the QR code below in Google Messages → Device Pairing")
-			err = client.PairCLI(ctx)
-			require.NoError(t, err, "QR pairing should complete after scanning the code")
-		}
+		rawCookies, source, err := liveCookieInput()
+		require.NoError(t, err, "cookie import requires COOKIES or COOKIES_PATH")
+		cookies, err := ParseCookies(rawCookies)
+		require.NoError(t, err, "cookies from %s should parse", source)
+		err = client.PairWithCookies(ctx, cookies, func(emoji string) {
+			t.Logf("Gaia pairing challenge emoji: %s — approve it on your phone", emoji)
+		})
+		require.NoError(t, err, "cookie pairing should complete after operator approval")
 	}
 
 	// 4. Session must be saved with 0600 permissions.
@@ -106,4 +104,21 @@ func TestLiveSmoke_EndToEnd(t *testing.T) {
 	// A full MCP round-trip requires the server wiring; this smoke test asserts the
 	// persistence handoff and leaves MCP retrieval to the integration suite.
 	t.Log("Live smoke test completed: pairing, connect, inbound message, and persistence verified")
+}
+
+// liveCookieInput resolves cookies from COOKIES (inline) or COOKIES_PATH (file).
+// It returns the raw text and a human-readable source label for diagnostics.
+func liveCookieInput() (string, string, error) {
+	if inline := os.Getenv("COOKIES"); inline != "" {
+		return inline, "COOKIES", nil
+	}
+	path := os.Getenv("COOKIES_PATH")
+	if path == "" {
+		return "", "", errors.New("set COOKIES or COOKIES_PATH, or supply a pre-paired SESSION_PATH")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", path, fmt.Errorf("failed to read COOKIES_PATH %s: %w", path, err)
+	}
+	return string(data), path, nil
 }

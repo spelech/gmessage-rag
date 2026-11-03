@@ -77,7 +77,7 @@ This roadmap establishes the phased path from active feature implementation to a
 - [x] Finalize `docs/CHANGELOG.md` under `[1.0.0-rc1] - 2026-11-02`. *(Completed - commit `099339d`)*
 - [x] Update root `README.md` with visual architecture badges, Docker quickstart, environment variable matrix, and docs link. *(Completed - commit `099339d`)*
 - [x] Author component guides for VitePress multi-nav:
-  - `docs/guide/ui-and-diagnostics.md` (Web Dashboard, QR/Gaia pairing, Test Bench, Tuner)
+  - `docs/guide/ui-and-diagnostics.md` (Web Dashboard, cookie-import pairing, Gaia challenge, Test Bench, Tuner)
   - `docs/guide/pipelines-and-ingestion.md` (3-stage batch ETL, Smart Debouncer, streaming media decryption)
   - `docs/specs/dossiers-and-hybrid-rag.md` (2h session chunking, Living Dossiers, Hybrid RRF math)
   - `docs/specs/mcp-server-spec.md` (MCP 2026-07-28, Streamable HTTP/SSE/stdio, tools catalog, prompt injection guardrails)

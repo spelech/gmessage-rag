@@ -21,6 +21,10 @@ import (
 	"github.com/spelech/gmessage-rag/internal/obs"
 )
 
+// testCookieJSON is a complete, syntactically valid Google cookie set used by
+// CLI tests. It never reaches the network because the tests cancel the context.
+const testCookieJSON = `{"SID":"sid-value","HSID":"hsid-value","OSID":"osid-value","SSID":"ssid-value","APISID":"apisid-value","SAPISID":"sapisid-value"}`
+
 // TestCLI_RootCommandFlags verifies flag registration and help output.
 func TestCLI_RootCommandFlags(t *testing.T) {
 	assert.Equal(t, "gmessages-rag", rootCmd.Use)
@@ -29,9 +33,9 @@ func TestCLI_RootCommandFlags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "pair", cmd.Name())
 
-	gaiaFlagVal := cmd.Flags().Lookup("gaia")
-	require.NotNil(t, gaiaFlagVal)
-	assert.Equal(t, "false", gaiaFlagVal.DefValue)
+	cookiesFlagVal := cmd.Flags().Lookup("cookies")
+	require.NotNil(t, cookiesFlagVal)
+	assert.Equal(t, "", cookiesFlagVal.DefValue)
 
 	serveFind, _, err := rootCmd.Find([]string{"serve"})
 	require.NoError(t, err)
@@ -131,18 +135,19 @@ func TestPairCommand_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// 1. Test pairCmd with standard QR mode under immediate context cancellation
+	// Test runPair with valid cookies under immediate context cancellation.
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
-	gaiaFlag = false
+	cookiesFlag = testCookieJSON
+	defer func() { cookiesFlag = "" }()
 
-	// Test runPair directly with an invalid session path or unresolvable server
 	err := runPair(cmd, nil)
 	assert.Error(t, err)
 }
 
-// TestPairCommand_GaiaErrorHandling tests gaiaFlag error handling.
-func TestPairCommand_GaiaErrorHandling(t *testing.T) {
+// TestPairCommand_InvalidCookies tests that malformed cookie input is rejected
+// before any network call or client initialization.
+func TestPairCommand_InvalidCookies(t *testing.T) {
 	tempDir := t.TempDir()
 	sessionFile := filepath.Join(tempDir, "session.json")
 	t.Setenv("SESSION_PATH", sessionFile)
@@ -150,13 +155,15 @@ func TestPairCommand_GaiaErrorHandling(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	gaiaFlag = true
-	defer func() { gaiaFlag = false }()
+	cookiesFlag = "SID=only"
+	defer func() { cookiesFlag = "" }()
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
 	err := runPair(cmd, nil)
-	assert.Error(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid cookies")
+	assert.Contains(t, err.Error(), "missing required Google cookies")
 }
 
 // TestServeCommand_ConfigValidation verifies error handling when configuration or database is invalid.
@@ -244,7 +251,8 @@ func TestPairCommand_DefaultSessionPath(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
-	gaiaFlag = false
+	cookiesFlag = testCookieJSON
+	defer func() { cookiesFlag = "" }()
 	_ = runPair(cmd, nil)
 }
 
@@ -278,21 +286,23 @@ func TestRootCmd_ExecuteHelp(t *testing.T) {
 func TestPairCommand_InitClientFailure(t *testing.T) {
 	t.Setenv("SESSION_PATH", t.TempDir())
 	cmd := &cobra.Command{}
-	gaiaFlag = false
+	cookiesFlag = testCookieJSON
+	defer func() { cookiesFlag = "" }()
 	err := runPair(cmd, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to initialize pairing client")
 }
 
-// TestPairCommand_InitGaiaFailure tests gaia client initialization error when session path is invalid.
-func TestPairCommand_InitGaiaFailure(t *testing.T) {
-	t.Setenv("SESSION_PATH", t.TempDir())
+// TestPairCommand_CookieFileNotFound tests a clear error when --cookies points to a missing file.
+func TestPairCommand_CookieFileNotFound(t *testing.T) {
+	t.Setenv("SESSION_PATH", filepath.Join(t.TempDir(), "session.json"))
+	cookiesFlag = filepath.Join(t.TempDir(), "missing-cookies.txt")
+	defer func() { cookiesFlag = "" }()
 	cmd := &cobra.Command{}
-	gaiaFlag = true
-	defer func() { gaiaFlag = false }()
+	cmd.SetContext(context.Background())
 	err := runPair(cmd, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to initialize gaia client")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cookie file not found")
 }
 
 // TestServeCommand_GMClientInitFailure verifies error returned when GM client fails initialization.

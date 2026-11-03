@@ -165,7 +165,7 @@
     .btn-track { background: var(--primary); color: #fff; }
     .btn-untrack { background: var(--border); color: var(--text-muted); }
     .btn:hover { opacity: 0.9; }
-    .qr-container {
+    .pair-container {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -176,7 +176,7 @@
       border-radius: 8px;
       margin-bottom: 24px;
     }
-    .qr-container img {
+    .pair-container img {
       background: white;
       padding: 12px;
       border-radius: 8px;
@@ -288,10 +288,18 @@
       </div>
     </div>
 
-    <div id="qr-section" class="qr-container" style="display: none;">
-      <h3>Pairing Required</h3>
-      <p style="color: var(--text-muted);">Scan this QR code with Google Messages on your mobile device (Device Pairing):</p>
-      <img id="qr-image" src="/pair?format=png" alt="Google Messages Pairing QR Code" width="240" height="240" />
+    <div id="pair-section" class="pair-container" style="display: none;">
+      <h3>Pair Google Messages</h3>
+      <p style="color: var(--text-muted);">
+        Pairing uses cookie import. Sign in to
+        <a href="https://messages.google.com/web" target="_blank" rel="noopener">messages.google.com/web</a>,
+        open DevTools &rarr; Network, select a request to <code>messages.google.com</code>,
+        right-click &rarr; Copy &rarr; Copy as cURL, then paste it below.
+      </p>
+      <textarea id="cookies-input" class="form-control" rows="6" placeholder="Paste the cURL command or cookie JSON here" aria-label="Google session cookies"></textarea>
+      <button id="pair-btn" class="btn btn-primary" type="button" style="margin-top: 12px;">Pair with cookies</button>
+      <p id="pair-status" style="color: var(--text-muted); margin-top: 12px;"></p>
+      <div id="pair-emoji" style="font-size: 56px; margin: 12px 0;" aria-live="polite"></div>
     </div>
 
     <div class="section-title">Tracked Contacts &amp; Conversations</div>
@@ -685,15 +693,13 @@
         }
 
         const gmStatusEl = document.getElementById('gm-status');
-        const qrSection = document.getElementById('qr-section');
+        const pairSection = document.getElementById('pair-section');
         if (data.gm_connected) {
           gmStatusEl.innerHTML = '<span class="badge badge-ok">Linked</span>';
-          qrSection.style.display = 'none';
+          pairSection.style.display = 'none';
         } else {
           gmStatusEl.innerHTML = '<span class="badge badge-err">Unpaired</span>';
-          qrSection.style.display = 'flex';
-          const qrImg = document.getElementById('qr-image');
-          qrImg.src = '/pair?format=png&t=' + Date.now();
+          pairSection.style.display = 'flex';
         }
 
         document.getElementById('unindexed-count').textContent = data.unindexed_messages ?? 0;
@@ -777,6 +783,62 @@
         console.error('Error loading contacts:', err);
       }
     }
+
+    async function submitCookies() {
+      const input = document.getElementById('cookies-input');
+      const statusEl = document.getElementById('pair-status');
+      const emojiEl = document.getElementById('pair-emoji');
+      const btn = document.getElementById('pair-btn');
+      const raw = input.value.trim();
+      if (!raw) {
+        statusEl.textContent = 'Paste cookies first.';
+        return;
+      }
+      btn.disabled = true;
+      statusEl.textContent = 'Validating cookies...';
+      emojiEl.textContent = '';
+      try {
+        const res = await fetch('/pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: raw })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Pairing failed');
+        statusEl.textContent = data.message || 'Cookies accepted. Watch for the emoji.';
+        pollPair();
+      } catch (err) {
+        statusEl.textContent = 'Error: ' + err.message;
+        btn.disabled = false;
+      }
+    }
+
+    async function pollPair() {
+      const statusEl = document.getElementById('pair-status');
+      const emojiEl = document.getElementById('pair-emoji');
+      try {
+        const res = await fetch('/pair?format=json');
+        const data = await res.json();
+        if (data.emoji) emojiEl.textContent = data.emoji;
+        if (data.paired) {
+          statusEl.textContent = 'Paired!';
+          emojiEl.textContent = '';
+          document.getElementById('pair-section').style.display = 'none';
+          fetchStatus();
+          return;
+        }
+        if (data.error) {
+          statusEl.textContent = 'Error: ' + data.error;
+          document.getElementById('pair-btn').disabled = false;
+          return;
+        }
+        setTimeout(pollPair, 3000);
+      } catch (err) {
+        setTimeout(pollPair, 3000);
+      }
+    }
+
+    document.getElementById('pair-btn').addEventListener('click', submitCookies);
 
     fetchStatus();
     fetchContacts();
