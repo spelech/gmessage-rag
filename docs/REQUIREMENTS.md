@@ -23,6 +23,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`HARN`** | Controls-grade in-memory simulation test harness and disturbance injection suite | `PositiveFeature` / `FailClosedGuardrail` |
 | **`DOCKER`**| Container orchestration, multi-stage build, PUID/PGID privilege drop, volume persistence | `PositiveFeature` / `FailClosedGuardrail` |
 | **`DAEMON`**| End-to-end daemon wiring, unified ServeMux routing, graceful shutdown orchestration | `PositiveFeature` / `FailClosedGuardrail` |
+| **`SYNC`** | Connection scheduling, periodic sync windows, and ping/alert tuning | `PositiveFeature` / `NonFunctional` |
 | **`CLEANUP`**| Code smell elimination, error wrapping `%w`, goroutine leak validation (`goleak`) | `NonFunctional` |
 | **`REFACTOR`**| Comprehensive architecture refactoring and structural smell purge | `NonFunctional` |
 | **`INT`** | External ecosystem integrations (Home Assistant MQTT bridge - held/deferred) | `PositiveFeature` |
@@ -82,6 +83,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`CLEANUP-01`**| `CLEANUP` | [x] Complete | **Dead Code & Error Handling Hardening** | Issue #42, commit `c279ebd` | Eliminated ignored errors, enforced strict error propagation on file operations, and added `goleak` goroutine lifecycle validation. | `gate:Makefile` (`make test`), `go test -race ./...` |
 | **`DOCKER-01`** | `DOCKER` | [x] Complete | **Hardened Non-Root Container & PUID/PGID** | Issue #42, commit `c279ebd` | Hardened multi-stage non-root container with `PUID`/`PGID` permission handling, `.env.example` alignment, and immutable volume mounts. | `Dockerfile`, `docker-compose.yml` |
 | **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` |
+| **`SYNC-01`** | `SYNC` | [x] Complete | **Periodic Connection Windows & Ping Tuning** | PR #102 | `SYNC_MODE=periodic` connects for `SYNC_WINDOW_MINUTES` every `SYNC_INTERVAL_MINUTES`, drains tracked conversations incrementally via `ETLPipeline.SyncBatch`, then disconnects without clearing the session cookie. `GM_PING_INTERVAL_MINUTES` and `GM_ALERT_TIMEOUT_COUNT` tune ditto pings. | `internal/gm/sync_test.go::TestPeriodicSyncLoop_ConnectDrainDisconnect`, `internal/config/config_test.go::TestLoadConfig_SyncSettings` |
 | **`REFACTOR-01`**| `REFACTOR`| [x] Complete | **Comprehensive Architecture Purge** | Issue #42, commit `c279ebd` | Holistic code smell elimination, clean package boundaries, and verification across all daemon subsystems. | `gate:Makefile` (`make lint`, `make test`) |
 | **`MCP-00`** | `MCP` | [x] Complete | **2026-07-28 Spec & Ping Support** | Commit `57dad5e` | Strictly adheres to the 2026-07-28 MCP specification: returns `Mcp-Protocol-Version: 2026-07-28` header, handles `ping` JSON-RPC method returning empty object `{}`, supports `initialize`/`notifications/initialized`, and runs over Streamable HTTP (`POST /mcp`), SSE (`GET /sse`), and stdio. | `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
 | **`MCP-01`** | `MCP` | [x] Complete | **`list_conversations` Tool** | Issue #79 | Lists conversations with IDs, contact names, participant identifiers, tracked status, and last activity. Handler is a thin wrapper over `db.ListConversations`; no placeholder text. | `internal/mcpserver/tools_test.go::TestTools_ListConversations_RealDB` |
@@ -345,6 +347,12 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Status**: `[x] Complete` (Issue #42, commit `c279ebd`)
 - **Description**: CLI commands (`cmd/gmessages-rag serve` and `pair`) wire all core subsystems into a unified `http.ServeMux` (`/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, `/healthz`), connect the connection watchdog, register action-aware debouncers, and manage graceful shutdown across `SIGINT`/`SIGTERM`.
 - **Verification**: Integration test in `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` asserting route dispatch; graceful shutdown is exercised by the daemon's signal handling.
+
+### `SYNC-01`: Periodic Connection Windows & Ping Tuning
+- **Category**: `SYNC` (`PositiveFeature`)
+- **Status**: `[x] Complete` (PR #102)
+- **Description**: `SYNC_MODE` selects the connection supervisor. `continuous` keeps the libgm long poll open (real-time). `periodic` connects for `SYNC_WINDOW_MINUTES` every `SYNC_INTERVAL_MINUTES`, runs the shared post-ingestion callback, drains tracked conversations with `ETLPipeline.SyncBatch`, then disconnects. `Disconnect` closes the long poll without clearing cookies, so the same `session.json` resumes. `GM_PING_INTERVAL_MINUTES` overrides the ditto ping interval; `GM_ALERT_TIMEOUT_COUNT` keeps disconnect detection inside the watchdog grace.
+- **Verification**: `internal/gm/sync_test.go::TestPeriodicSyncLoop_ConnectDrainDisconnect` asserts the connect→drain→disconnect sequence and cancellation; `internal/config/config_test.go::TestLoadConfig_SyncSettings` asserts defaults, overrides, and boundary fallbacks.
 
 ### `REFACTOR-01`: Comprehensive Architecture Purge
 - **Category**: `REFACTOR` (`NonFunctional`)

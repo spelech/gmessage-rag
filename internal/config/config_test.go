@@ -110,3 +110,69 @@ func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
 		t.Errorf("expected MediaDir '/custom/media', got %s", cfg.MediaDir)
 	}
 }
+
+// TestLoadConfig_SyncSettings verifies SYNC-01 configuration parsing: defaults,
+// overrides, and boundary fallbacks for the connection schedule and ping tuning.
+func TestLoadConfig_SyncSettings(t *testing.T) {
+	os.Clearenv()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error loading defaults: %v", err)
+	}
+	if cfg.SyncMode != "continuous" {
+		t.Errorf("expected default SyncMode continuous, got %q", cfg.SyncMode)
+	}
+	if cfg.SyncIntervalMinutes != 30 {
+		t.Errorf("expected default SyncIntervalMinutes 30, got %d", cfg.SyncIntervalMinutes)
+	}
+	if cfg.SyncWindowMinutes != 5 {
+		t.Errorf("expected default SyncWindowMinutes 5, got %d", cfg.SyncWindowMinutes)
+	}
+	if cfg.PingIntervalMinutes != 5 {
+		t.Errorf("expected default PingIntervalMinutes 5, got %d", cfg.PingIntervalMinutes)
+	}
+	if cfg.AlertTimeoutCount != 2 {
+		t.Errorf("expected default AlertTimeoutCount 2, got %d", cfg.AlertTimeoutCount)
+	}
+
+	os.Setenv("SYNC_MODE", "periodic")
+	os.Setenv("SYNC_INTERVAL_MINUTES", "15")
+	os.Setenv("SYNC_WINDOW_MINUTES", "2")
+	os.Setenv("GM_PING_INTERVAL_MINUTES", "3")
+	os.Setenv("GM_ALERT_TIMEOUT_COUNT", "1")
+	defer os.Clearenv()
+
+	cfg, err = config.LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error loading overrides: %v", err)
+	}
+	if cfg.SyncMode != "periodic" {
+		t.Errorf("expected SyncMode periodic, got %q", cfg.SyncMode)
+	}
+	if cfg.SyncIntervalMinutes != 15 {
+		t.Errorf("expected SyncIntervalMinutes 15, got %d", cfg.SyncIntervalMinutes)
+	}
+	if cfg.SyncWindowMinutes != 2 {
+		t.Errorf("expected SyncWindowMinutes 2, got %d", cfg.SyncWindowMinutes)
+	}
+	if cfg.PingIntervalMinutes != 3 {
+		t.Errorf("expected PingIntervalMinutes 3, got %d", cfg.PingIntervalMinutes)
+	}
+	if cfg.AlertTimeoutCount != 1 {
+		t.Errorf("expected AlertTimeoutCount 1, got %d", cfg.AlertTimeoutCount)
+	}
+
+	// Unknown mode and sub-minute interval fall back to safe values.
+	os.Setenv("SYNC_MODE", "turbo")
+	os.Setenv("SYNC_INTERVAL_MINUTES", "0")
+	cfg, err = config.LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error loading fallbacks: %v", err)
+	}
+	if cfg.SyncMode != "continuous" {
+		t.Errorf("expected unknown SyncMode to fall back to continuous, got %q", cfg.SyncMode)
+	}
+	if cfg.SyncIntervalMinutes != 30 {
+		t.Errorf("expected 0 interval to fall back to 30, got %d", cfg.SyncIntervalMinutes)
+	}
+}

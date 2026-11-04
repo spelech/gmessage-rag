@@ -21,6 +21,24 @@ All settings can be specified via environment variables or a `.env` file.
 | `PULL_FULL_SIZE_MEDIA` | bool | `false` | Request full-resolution media before OCR |
 | `BACKFILL_BATCH_SIZE` | int | `100` | Pagination batch size for historical backfill |
 
+## Connection Scheduling (`SYNC-01`)
+
+`SYNC_MODE` selects how the daemon holds the Google Messages session. Real-time
+ingestion requires a live connection; periodic mode connects only during a short
+window so the phone is not held "connected" all day.
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `SYNC_MODE` | string | `continuous` | `continuous` (always connected) or `periodic` (connect per window) |
+| `SYNC_INTERVAL_MINUTES` | int | `30` | Minutes between the start of one periodic sync round and the next |
+| `SYNC_WINDOW_MINUTES` | int | `5` | Minutes the connection stays open each round before disconnecting |
+| `GM_PING_INTERVAL_MINUTES` | int | `5` | Ditto ping interval (libgm accepts 1..240) |
+| `GM_ALERT_TIMEOUT_COUNT` | int | `2` | Missed pings before the phone is marked unresponsive |
+
+Disconnecting does not clear the session cookie, so the same `session.json`
+resumes on the next round. In periodic mode the daemon runs one historical
+backfill pass at startup and then a forward drain per window.
+
 ## Model & Vision Settings
 
 | Variable | Type | Default | Description |

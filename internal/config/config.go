@@ -40,6 +40,11 @@ type Config struct {
 	PullFullSizeMedia           bool
 	MediaDir                    string
 	DossierDir                  string
+	SyncMode                    string
+	SyncIntervalMinutes         int
+	SyncWindowMinutes           int
+	PingIntervalMinutes         int
+	AlertTimeoutCount           int
 }
 
 // LoadConfig reads configuration from environment variables with fallback defaults.
@@ -62,6 +67,26 @@ func LoadConfig() (*Config, error) {
 	pullFullSizeMedia := getEnvBool("PULL_FULL_SIZE_MEDIA", false)
 	mediaDir := getEnv("MEDIA_DIR", "/data/media")
 	dossierDir := getEnv("DOSSIER_DIR", "/data/dossiers")
+	syncMode := strings.ToLower(getEnv("SYNC_MODE", "continuous"))
+	if syncMode != "periodic" {
+		syncMode = "continuous"
+	}
+	syncIntervalMinutes := getEnvInt("SYNC_INTERVAL_MINUTES", 30)
+	if syncIntervalMinutes < 1 {
+		syncIntervalMinutes = 30
+	}
+	syncWindowMinutes := getEnvInt("SYNC_WINDOW_MINUTES", 5)
+	if syncWindowMinutes < 0 {
+		syncWindowMinutes = 0
+	}
+	pingIntervalMinutes := getEnvInt("GM_PING_INTERVAL_MINUTES", 5)
+	if pingIntervalMinutes < 1 {
+		pingIntervalMinutes = 1
+	}
+	alertTimeoutCount := getEnvInt("GM_ALERT_TIMEOUT_COUNT", 2)
+	if alertTimeoutCount < 1 {
+		alertTimeoutCount = 1
+	}
 
 	trackedRaw := getEnv("TRACKED_CONTACTS", "")
 	var trackedContacts []string
@@ -107,6 +132,11 @@ func LoadConfig() (*Config, error) {
 		PullFullSizeMedia:           pullFullSizeMedia,
 		MediaDir:                    mediaDir,
 		DossierDir:                  dossierDir,
+		SyncMode:                    syncMode,
+		SyncIntervalMinutes:         syncIntervalMinutes,
+		SyncWindowMinutes:           syncWindowMinutes,
+		PingIntervalMinutes:         pingIntervalMinutes,
+		AlertTimeoutCount:           alertTimeoutCount,
 	}
 
 	return cfg, nil

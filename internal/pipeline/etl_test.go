@@ -228,21 +228,21 @@ func TestETLPipeline_LoadValidation(t *testing.T) {
 
 	t.Run("Nil database validation", func(t *testing.T) {
 		p := &ETLPipeline{Database: nil}
-		err := p.Load(ctx, "conv-1", []*db.Message{}, nil)
+		_, err := p.Load(ctx, "conv-1", []*db.Message{}, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database cannot be nil")
 	})
 
 	t.Run("Empty conversationID validation", func(t *testing.T) {
 		p := &ETLPipeline{Database: &db.DB{}}
-		err := p.Load(ctx, "", []*db.Message{}, nil)
+		_, err := p.Load(ctx, "", []*db.Message{}, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "conversationID cannot be empty")
 	})
 
 	t.Run("Database pool nil fails cleanly", func(t *testing.T) {
 		p := &ETLPipeline{Database: &db.DB{Pool: nil}}
-		err := p.Load(ctx, "conv-1", []*db.Message{}, []byte("cur-1"))
+		_, err := p.Load(ctx, "conv-1", []*db.Message{}, []byte("cur-1"))
 		assert.Error(t, err)
 	})
 }

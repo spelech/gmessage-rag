@@ -271,6 +271,82 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 	}()
 }
 
+// SyncTrackedContacts performs one forward, incremental sync pass over the tracked
+// conversations while a connection is open. Unlike StartETLForTrackedContacts it
+// pages from the newest message and stops at the first page with no new rows, so
+// it stays cheap to run every periodic sync window. It is synchronous; callers
+// run it inside a bounded window.
+func SyncTrackedContacts(ctx context.Context, logger zerolog.Logger, database *db.DB, gmClient *gm.Client, sessionizer *pipeline.Sessionizer, media *pipeline.MediaIngestor, trackedContacts []string, batchSize int, onContactSynced ...func(context.Context, string)) {
+	if len(trackedContacts) == 0 || database == nil || gmClient == nil {
+		return
+	}
+
+	resolvedContacts := resolveTrackedConversations(ctx, logger, gmClient, trackedContacts)
+	logger.Info().Int("count", len(resolvedContacts)).Msg("Periodic sync: draining tracked conversations")
+
+	etl := &pipeline.ETLPipeline{
+		Fetcher:  gmClient,
+		Database: database,
+		Media:    media,
+	}
+
+	pageSize := int64(batchSize)
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+
+	for idx, contactID := range resolvedContacts {
+		select {
+		case <-ctx.Done():
+			logger.Info().Msg("Periodic sync aborted due to shutdown")
+			return
+		default:
+		}
+
+		contactName := contactID
+		if idx < len(trackedContacts) && strings.TrimSpace(trackedContacts[idx]) != "" {
+			contactName = strings.TrimSpace(trackedContacts[idx])
+		}
+		_ = database.UpsertConversation(ctx, &db.Conversation{
+			ID:        contactID,
+			Name:      contactName,
+			IsTracked: true,
+		})
+
+		var cursor []byte
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			nextCursor, inserted, err := etl.SyncBatch(ctx, contactID, pageSize, cursor)
+			if err != nil {
+				logger.Warn().Err(err).Str("contact_id", contactID).Msg("Periodic sync batch failed")
+				break
+			}
+			if inserted == 0 || len(nextCursor) == 0 || string(nextCursor) == string(cursor) {
+				break
+			}
+			cursor = nextCursor
+		}
+
+		if sessionizer != nil {
+			if _, err := sessionizer.ProcessUnassignedMessages(ctx, contactID); err != nil && ctx.Err() == nil {
+				logger.Warn().Err(err).Str("contact_id", contactID).Msg("Sessionizer processing failed after periodic sync")
+			}
+		}
+
+		for _, fn := range onContactSynced {
+			if fn != nil && ctx.Err() == nil {
+				fn(ctx, contactID)
+			}
+		}
+	}
+	logger.Info().Msg("Periodic sync: drain complete")
+}
+
 // dispatchDossierWebhook delivers a dossier update event with a bounded timeout. Failures are
 // logged but never abort the flush, because the dossier is already persisted.
 // Requirement ID: TRANS-03
@@ -519,10 +595,61 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	mediaIngestor.Downloader = gmClient
 
-	// Connect Google Messages client if credentials exist and are paired
+	// Apply connection tuning. A longer ping lowers wakeups; a lower alert
+	// timeout keeps phone-not-responding detection inside the watchdog grace.
+	gmClient.SetPingInterval(time.Duration(cfg.PingIntervalMinutes) * time.Minute)
+	gmClient.SetAlertTimeoutCount(cfg.AlertTimeoutCount)
+
+	// afterSync runs the shared post-ingestion work for one conversation.
+	// Requirement ID: PIPE-01, PIPE-03
+	afterSync := func(syncCtx context.Context, contactID string) {
+		if cfg.PauseIngestion {
+			return
+		}
+		if count, ocrErr := visionService.ProcessUnprocessedAttachments(syncCtx, contactID, 50); ocrErr != nil {
+			logger.Warn().Err(ocrErr).Str("conversation_id", contactID).Msg("Vision OCR processing encountered error after ETL sync")
+		} else if count > 0 {
+			logger.Info().Int("count", count).Str("conversation_id", contactID).Msg("Processed vision OCR for attachments after ETL sync")
+		}
+		outcome, dossierErr := dossierReconciler.Reconcile(syncCtx, contactID)
+		if dossierErr != nil {
+			logger.Warn().Err(dossierErr).Str("conversation_id", contactID).Msg("Living Dossier reconciliation failed after ETL sync")
+			return
+		}
+		if outcome != nil && outcome.Changed {
+			logger.Info().Str("conversation_id", contactID).Int("version", outcome.Dossier.Version).Msg("Reconciled Living Dossier after ETL sync")
+			dispatchDossierWebhook(syncCtx, logger, webhookDispatcher, outcome.Dossier)
+		}
+	}
+
+	// Connect Google Messages client if credentials exist and are paired.
+	// SYNC_MODE selects the connection supervisor: continuous (ReconnectLoop)
+	// or periodic (connect for SYNC_WINDOW_MINUTES every SYNC_INTERVAL_MINUTES).
+	// Requirement ID: SYNC-01
 	if gmClient.LibGM().IsLoggedIn() {
-		logger.Info().Msg("Existing Google Messages session detected, initiating connect...")
-		go gmClient.ReconnectLoop(ctx)
+		if cfg.SyncMode == "periodic" {
+			logger.Info().
+				Int("interval_minutes", cfg.SyncIntervalMinutes).
+				Int("window_minutes", cfg.SyncWindowMinutes).
+				Int("ping_interval_minutes", cfg.PingIntervalMinutes).
+				Msg("Periodic sync mode enabled: connecting only during each sync window")
+			go gmClient.PeriodicSyncLoop(ctx, gm.PeriodicSyncConfig{
+				Interval: time.Duration(cfg.SyncIntervalMinutes) * time.Minute,
+				Window:   time.Duration(cfg.SyncWindowMinutes) * time.Minute,
+				Logger:   logger.With().Str("component", "sync").Logger(),
+				OnWindow: func(windowCtx context.Context) {
+					if cfg.PauseIngestion {
+						return
+					}
+					drainCtx, cancel := context.WithTimeout(windowCtx, 10*time.Minute)
+					defer cancel()
+					SyncTrackedContacts(drainCtx, logger, database, gmClient, sessionizer, mediaIngestor, cfg.TrackedContacts, cfg.MaxBackfillMessages, afterSync)
+				},
+			})
+		} else {
+			logger.Info().Msg("Existing Google Messages session detected, initiating connect...")
+			go gmClient.ReconnectLoop(ctx)
+		}
 	} else {
 		logger.Warn().Msg("Google Messages session is not paired. Run 'pair' or navigate to /pair to authenticate.")
 	}
