@@ -167,6 +167,11 @@ Once running, navigate to port `8090` on your host:
 | **`ENABLE_READ_RECEIPT_HEURISTIC`**| `true` | Infer preceding outgoing message delivery from incoming replies |
 | **`PULL_FULL_SIZE_MEDIA`**| `false` | Opt-in to download original high-resolution media before OCR |
 | **`SYNC_GOOGLE_CONTACTS`**| `true` | Periodically synchronize names and avatars via `ListContacts` |
+| **`SYNC_MODE`**| `continuous` | `continuous` (always connected) or `periodic` (connect per window, saves phone battery) |
+| **`SYNC_INTERVAL_MINUTES`**| `30` | Minutes between periodic sync windows |
+| **`SYNC_WINDOW_MINUTES`**| `5` | Minutes the connection stays open each periodic window |
+| **`GM_PING_INTERVAL_MINUTES`**| `5` | Ditto ping interval; lower wakeups than the 1-minute default |
+| **`GM_ALERT_TIMEOUT_COUNT`**| `2` | Missed pings before phone-not-responding fires |
 
 ---
 

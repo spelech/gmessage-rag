@@ -411,3 +411,48 @@ func (c *Client) ReconnectLoop(ctx context.Context) {
 		}
 	}
 }
+
+// Disconnect tears down the long-poll connection without clearing the session
+// cookies or the pairing. A later Connect resumes the same session, which the
+// periodic sync loop relies on.
+func (c *Client) Disconnect() {
+	if c == nil || c.libgmClient == nil {
+		return
+	}
+	c.libgmClient.Disconnect()
+	c.mu.Lock()
+	c.connecting = false
+	c.mu.Unlock()
+}
+
+// IsConnected reports whether the libgm long-poll connection is currently open.
+func (c *Client) IsConnected() bool {
+	if c == nil || c.libgmClient == nil {
+		return false
+	}
+	return c.libgmClient.IsConnected()
+}
+
+// IsLoggedIn reports whether a paired session with cookies is loaded.
+func (c *Client) IsLoggedIn() bool {
+	if c == nil || c.libgmClient == nil {
+		return false
+	}
+	return c.libgmClient.IsLoggedIn()
+}
+
+// SetPingInterval overrides the ditto ping interval. libgm accepts 1m..4h.
+func (c *Client) SetPingInterval(d time.Duration) {
+	if c == nil || c.libgmClient == nil {
+		return
+	}
+	c.libgmClient.SetPingInterval(d)
+}
+
+// SetAlertTimeoutCount overrides how many missed pings mark the phone unresponsive.
+func (c *Client) SetAlertTimeoutCount(n int) {
+	if c == nil || c.libgmClient == nil {
+		return
+	}
+	c.libgmClient.SetAlertTimeoutCount(n)
+}

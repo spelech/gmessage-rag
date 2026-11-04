@@ -77,6 +77,7 @@ flowchart TD
   - Spawns the `SmartDebouncer` listening for inbound messages and typing activity.
   - Spawns the `Watchdog` monitoring cellular disconnects with 15-minute debouncing.
   - Triggers the background `ETLPipeline` backfill for configured `TRACKED_CONTACTS`.
+  - Runs the connection supervisor selected by `SYNC_MODE` (`SYNC-01`): `continuous` keeps the long poll open; `periodic` connects for `SYNC_WINDOW_MINUTES` every `SYNC_INTERVAL_MINUTES`, drains tracked conversations with `SyncBatch`, then disconnects.
   - Serves the unified `http.ServeMux` on `:8090`.
   - Listens for `SIGINT` / `SIGTERM` signals for graceful HTTP connection draining and state persistence.
 - **`gmessages-rag pair`**: Dedicated pairing CLI:

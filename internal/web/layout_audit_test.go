@@ -237,12 +237,26 @@ func TestLayoutAudit_HeadlessChrome(t *testing.T) {
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancelAlloc()
 
+	// Warm the browser up once, outside the per-viewport budgets. chromedp starts
+	// the browser process on first use, and a loaded CI runner with -race can take
+	// longer than a viewport timeout to cold-start; warming here keeps that cost
+	// out of the first subtest.
+	warmCtx, warmCancel := chromedp.NewContext(allocCtx)
+	warmCtx, warmTimeoutCancel := context.WithTimeout(warmCtx, 90*time.Second)
+	if err := chromedp.Do(warmCtx, chromedp.Navigate("about:blank")); err != nil {
+		warmTimeoutCancel()
+		warmCancel()
+		t.Fatalf("Chromium failed to start for the headless UI audit: %v", err)
+	}
+	warmTimeoutCancel()
+	warmCancel()
+
 	for _, vp := range viewports {
 		t.Run("Viewport_"+vp.name, func(t *testing.T) {
 			ctx, cancel := chromedp.NewContext(allocCtx)
 			defer cancel()
 
-			ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+			ctx, timeoutCancel := context.WithTimeout(ctx, 60*time.Second)
 			defer timeoutCancel()
 
 			var vpOpts []chromedp.EmulateViewportOption
@@ -355,7 +369,7 @@ func TestLayoutAudit_HeadlessChrome(t *testing.T) {
 		ctx, cancel := chromedp.NewContext(allocCtx)
 		defer cancel()
 
-		ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+		ctx, timeoutCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer timeoutCancel()
 
 		err := chromedp.Do(ctx,
@@ -395,7 +409,7 @@ func TestLayoutAudit_HeadlessChrome(t *testing.T) {
 		ctx, cancel := chromedp.NewContext(allocCtx)
 		defer cancel()
 
-		ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+		ctx, timeoutCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer timeoutCancel()
 
 		err := chromedp.Do(ctx,
