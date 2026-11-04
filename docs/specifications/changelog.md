@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-04
+
 ### Changed
 - **Cookie Import Pairing (`AUTH-02`)**: Replaced QR device pairing with Matrix-style Google session cookie import. The CLI (`gmessages-rag pair --cookies`) and web dashboard (`GET/POST /pair`) accept a cURL command, JSON map/array, raw `Cookie:` header, or semicolon pairs. The importer validates the required Google cookies and starts the Gaia emoji challenge.
 

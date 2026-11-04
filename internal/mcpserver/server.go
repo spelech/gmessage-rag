@@ -41,7 +41,7 @@ func NewServer(opts ServerOptions) *Server {
 		opts.Name = "gmessages-rag"
 	}
 	if opts.Version == "" {
-		opts.Version = "0.1.0"
+		opts.Version = "1.0.0"
 	}
 
 	s := &Server{

@@ -209,7 +209,7 @@ To connect `gmessages-rag` to an MCP client (such as Claude Desktop, OpenCode, o
 - 📚 **VitePress Docs Portal**: [https://spelech.github.io/gmessage-rag/](https://spelech.github.io/gmessage-rag/)
 - 📐 [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md): Full daemon topology, ServeMux routing, concurrency model, and sequence diagrams.
 - 📋 [**`docs/REQUIREMENTS.md`**](docs/REQUIREMENTS.md): SRS with category taxonomy (`AUTH`, `DB`, `PIPE`, `OBS`, `UI`, `SEC`, `HARN`, `DOCKER`, `DAEMON`) and traceability matrix.
-- 📜 [**`docs/CHANGELOG.md`**](docs/CHANGELOG.md): SemVer release history under `[1.0.0-rc1]`.
+- 📜 [**`docs/CHANGELOG.md`**](docs/CHANGELOG.md): SemVer release history under `[1.0.0]`.
 - 🗺️ [**`docs/PLAN.md`**](docs/PLAN.md): Implementation and integration roadmap across Phases 1 through 4.
 - 🛡️ [**`AGENTS.md`**](AGENTS.md) / [**`GEMINI.md`**](GEMINI.md): Master engineering guidelines and anti-test-theatre standards.
 

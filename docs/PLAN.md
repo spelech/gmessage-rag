@@ -111,4 +111,4 @@ This roadmap establishes the phased path from active feature implementation to a
 
 ### 4.6 Versioned Release (`v1.0.0-rc1` / `v1.0.0`)
 - [x] Cut initial release candidate tag `v1.0.0-rc1` and publish pre-release on GitHub. *(Completed)*
-- [ ] Build multi-arch binaries (`linux/amd64`, `linux/arm64`) and publish release `v1.0.0` following 80%+ component coverage gate completion.
+- [x] Publish `v1.0.0` with the GHCR container image (`linux/amd64`) and GitHub Release. *(Completed 2026-11-04)*

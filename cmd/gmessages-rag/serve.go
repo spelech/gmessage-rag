@@ -657,7 +657,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// 7. Initialize MCP Server, Runtime Tuner, and Root Mux
 	mcpServer := mcpserver.NewServer(mcpserver.ServerOptions{
 		Name:              "gmessages-rag",
-		Version:           "0.1.0",
+		Version:           "1.0.0",
 		EnableSendMessage: cfg.EnableMCPSendMessage,
 		Database:          database,
 		AccessToken:       cfg.MCPAccessToken,
