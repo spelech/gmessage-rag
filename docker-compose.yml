@@ -19,7 +19,7 @@ services:
       retries: 5
 
   gmessages-rag:
-    image: ${GMESSAGES_IMAGE:-ghcr.io/spelech/gmessage-rag:v1.0.0}
+    image: ${GMESSAGES_IMAGE:-ghcr.io/spelech/gmessage-rag:1.0.0}
     build:
       context: .
       dockerfile: Dockerfile
