@@ -19,7 +19,7 @@
 ## Key Capabilities
 
 1. **Matrix-Free Real-Time RCS/SMS Sync:**
-   - Pairs via default single-device Google Account emoji challenge (`gmessages-rag pair`, `GET /pair`, `AUTH-05`) or legacy QR fallback (`--qr`, `?mode=qr`, `AUTH-02`).
+   - Pairs via cookie import (`gmessages-rag pair --cookies` or the web dashboard `/pair`), followed by the single-device Google Account (Gaia) emoji challenge (`AUTH-04`).
    - Ingests incoming/outgoing messages, emoji reactions, and reply chains into PostgreSQL 17.
    - Paginates historical message backfills via standardized 3-stage batch ETL (`PIPE-06`).
 2. **Content-Addressed Media & Vision OCR Pipeline:**
@@ -38,7 +38,7 @@
    - Provides 6 core tools: `list_conversations`, `get_contact_dossier`, `search_conversation_history`, `get_messages_around_time`, `search_shared_media`, and `manage_tracked_contact`.
    - Encloses all raw external conversational text and OCR in `<untrusted_conversation_data>` XML guardrails (`GUARD-01`).
 6. **Embedded Web Management UI & Diagnostic Test Bench:**
-   - Web Management Dashboard on `/` and `/dashboard` with tracked contact toggles and live QR pairing visualizer (`UI-01`).
+   - Web Management Dashboard on `/` and `/dashboard` with tracked contact toggles and cookie-import pairing console (`UI-01`).
    - Context-Cortex style Developer Diagnostic Test Bench on `/testbench` for ad-hoc MCP testing, Hybrid RRF scoring inspection, and XML boundary auditing (`UI-02`).
    - Hot-reloadable runtime parameter tuner on `/api/v1/tuner` (`UI-03`).
 7. **Observability, Watchdog & Push Alerting:**
@@ -95,24 +95,26 @@ docker compose logs -f gmessages-rag
 
 ### 3. Pair with Google Messages
 
-#### Option A: Single-Device Gaia Emoji Pairing (Default & Recommended - AUTH-05)
-If pairing from a single mobile device or remote terminal:
+Device pairing uses cookie import. Import Google session cookies from a signed-in browser.
+
+1. Sign in to [https://messages.google.com/web](https://messages.google.com/web) in your browser.
+2. Open DevTools (`F12`) and switch to the **Network** tab.
+3. Select a request to `messages.google.com` (for example `config`).
+4. Right-click the request and choose **Copy** → **Copy as cURL**.
+
+#### Option A: CLI (Recommended)
 ```bash
-# Terminal execution (defaults to Gaia emoji flow)
-docker compose exec -it gmessages-rag gmessages-rag pair
-
-# Or open in your browser (defaults to Gaia emoji challenge)
-# http://localhost:8090/pair
+docker compose exec -it gmessages-rag gmessages-rag pair --cookies -
 ```
-The daemon requests a pairing challenge and prints an emoji (e.g. 🚀). Open Google Messages on your phone, go to **Device Pairing**, and tap the matching emoji.
+Paste the cURL command, then press Ctrl-D. The daemon validates the cookies, saves the session, and starts the Gaia emoji challenge. Open Google Messages on your phone, go to **Device Pairing**, and tap the matching emoji.
 
-#### Option B: Legacy Web Browser QR Visualizer
-Open [http://localhost:8090/pair?mode=qr](http://localhost:8090/pair?mode=qr) in your web browser. Open Google Messages on your Android phone, select **Device Pairing -> QR code scanner**, and scan the QR code displayed on screen.
-
-#### Option C: Legacy Terminal QR Code
+You can also read cookies from a file:
 ```bash
-docker compose exec -it gmessages-rag gmessages-rag pair --qr
+docker compose exec -it gmessages-rag gmessages-rag pair --cookies /data/auth/google-cookies.txt
 ```
+
+#### Option B: Web Dashboard
+Open [http://localhost:8090/pair](http://localhost:8090/pair) in your web browser. Paste the cURL command into the text area and select **Pair with cookies**. The page shows the Gaia emoji challenge when Google accepts the cookies.
 
 ---
 
@@ -155,6 +157,7 @@ Once running, navigate to port `8090` on your host:
 | **`DOSSIER_DEBOUNCE_MINUTES`** | `30` | Idle messaging silence required before dossier reconciliation |
 | **`MAX_BACKFILL_MESSAGES`** | `5000` | Maximum messages to fetch during initial cursor pagination |
 | **`ENABLE_MCP_SEND_MESSAGE`**| `false` | Gatekeeper guardrail allowing outbound `send_message` MCP tool |
+| **`MCP_ACCESS_TOKEN`** | `""` | Optional bearer token required on every `tools/call` (`Mcp-Access-Token` or `Authorization: Bearer`) |
 | **`WEBHOOK_URL`** | `""` | Outbound HTTP POST target triggered on dossier updates |
 | **`APPRISE_URL`** | `""` | Apprise notification gateway URL for push alerts |
 | **`NTFY_URL`** | `""` | ntfy topic URL for direct mobile push notifications |
@@ -164,6 +167,11 @@ Once running, navigate to port `8090` on your host:
 | **`ENABLE_READ_RECEIPT_HEURISTIC`**| `true` | Infer preceding outgoing message delivery from incoming replies |
 | **`PULL_FULL_SIZE_MEDIA`**| `false` | Opt-in to download original high-resolution media before OCR |
 | **`SYNC_GOOGLE_CONTACTS`**| `true` | Periodically synchronize names and avatars via `ListContacts` |
+| **`SYNC_MODE`**| `continuous` | `continuous` (always connected) or `periodic` (connect per window, saves phone battery) |
+| **`SYNC_INTERVAL_MINUTES`**| `30` | Minutes between periodic sync windows |
+| **`SYNC_WINDOW_MINUTES`**| `5` | Minutes the connection stays open each periodic window |
+| **`GM_PING_INTERVAL_MINUTES`**| `5` | Ditto ping interval; lower wakeups than the 1-minute default |
+| **`GM_ALERT_TIMEOUT_COUNT`**| `2` | Missed pings before phone-not-responding fires |
 
 ---
 
@@ -201,7 +209,7 @@ To connect `gmessages-rag` to an MCP client (such as Claude Desktop, OpenCode, o
 - 📚 **VitePress Docs Portal**: [https://spelech.github.io/gmessage-rag/](https://spelech.github.io/gmessage-rag/)
 - 📐 [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md): Full daemon topology, ServeMux routing, concurrency model, and sequence diagrams.
 - 📋 [**`docs/REQUIREMENTS.md`**](docs/REQUIREMENTS.md): SRS with category taxonomy (`AUTH`, `DB`, `PIPE`, `OBS`, `UI`, `SEC`, `HARN`, `DOCKER`, `DAEMON`) and traceability matrix.
-- 📜 [**`docs/CHANGELOG.md`**](docs/CHANGELOG.md): SemVer release history under `[1.0.0-rc1]`.
+- 📜 [**`docs/CHANGELOG.md`**](docs/CHANGELOG.md): SemVer release history under `[1.0.0]`.
 - 🗺️ [**`docs/PLAN.md`**](docs/PLAN.md): Implementation and integration roadmap across Phases 1 through 4.
 - 🛡️ [**`AGENTS.md`**](AGENTS.md) / [**`GEMINI.md`**](GEMINI.md): Master engineering guidelines and anti-test-theatre standards.
 

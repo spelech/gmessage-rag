@@ -10,7 +10,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 
 | Category Code | Domain Scope | Proof Types |
 | :--- | :--- | :--- |
-| **`AUTH`** | Google Messages Web pairing (QR terminal, Web QR) & session token lifecycle | `PositiveFeature` / `FailClosedGuardrail` |
+| **`AUTH`** | Google Messages cookie import & session token lifecycle | `PositiveFeature` / `FailClosedGuardrail` |
 | **`DB`** | PostgreSQL 17 + pgvector migrations, message upserts, session chunking, and RRF queries | `PositiveFeature` / `FailClosedGuardrail` |
 | **`GUARD`** | Fail-closed guardrails, untrusted conversation XML tagging, send-message restrictions | `FailClosedGuardrail` |
 | **`MCP`** | Model Context Protocol tool routing, schema validation, Streamable HTTP/SSE & stdio transport | `PositiveFeature` / `FailClosedGuardrail` |
@@ -23,6 +23,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`HARN`** | Controls-grade in-memory simulation test harness and disturbance injection suite | `PositiveFeature` / `FailClosedGuardrail` |
 | **`DOCKER`**| Container orchestration, multi-stage build, PUID/PGID privilege drop, volume persistence | `PositiveFeature` / `FailClosedGuardrail` |
 | **`DAEMON`**| End-to-end daemon wiring, unified ServeMux routing, graceful shutdown orchestration | `PositiveFeature` / `FailClosedGuardrail` |
+| **`SYNC`** | Connection scheduling, periodic sync windows, and ping/alert tuning | `PositiveFeature` / `NonFunctional` |
 | **`CLEANUP`**| Code smell elimination, error wrapping `%w`, goroutine leak validation (`goleak`) | `NonFunctional` |
 | **`REFACTOR`**| Comprehensive architecture refactoring and structural smell purge | `NonFunctional` |
 | **`INT`** | External ecosystem integrations (Home Assistant MQTT bridge - held/deferred) | `PositiveFeature` |
@@ -34,10 +35,9 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | Requirement ID | Category | Status | Summary | Merged PR / Commit | Acceptance Criteria | Automated Test Proof |
 | :--- | :--- | :---: | :--- | :--- | :--- | :--- |
 | **`AUTH-01`** | `AUTH` | [x] Complete | **Session Token Persistence** | Commit `7456168` (PR #7) | Atomically writes `*libgm.AuthData` to `/data/auth/session.json` with `0600` permissions on `PairSuccessful` and `AuthTokenRefreshed`. | `internal/gm/pairing_test.go::TestSessionPersistence_Permissions` |
-| **`AUTH-02`** | `AUTH` | [x] Complete | **Dual Pairing Workflow** | Commit `7456168` (PR #7) | Supports terminal QR printing (`gmessages-rag pair`) and web UI QR rendering (`GET /pair`) with live refresh. | `internal/gm/pairing_test.go::TestPairingHandlers` |
+| **`AUTH-02`** | `AUTH` | [x] Complete | **Cookie Import Pairing** | PR #99 | Supports cookie import from a cURL command, JSON map/array, raw `Cookie:` header, or semicolon pairs via CLI (`gmessages-rag pair --cookies`) and web dashboard (`GET/POST /pair`). Validates the required Google cookies and persists the session. | `internal/gm/cookies_test.go::TestParseCookies`, `internal/web/pair_test.go::TestCookiePairHandler` |
 | **`AUTH-03`** | `AUTH` | [x] Complete | **Push Alerting & Remote Re-Auth** | Commit `7456168` (PR #35) | Dispatches Apprise/ntfy push notifications when token refresh fails or session is revoked, with direct link to `/pair` web UI for mobile re-pairing. | `internal/notify/client_test.go::TestPushAlerting_ReAuthNotification` |
-| **`AUTH-04`** | `AUTH` | [x] Complete | **Single-Device Gaia Pairing (No-QR Flow)** | PR #36, commit `fd1f7a3` | Supports Google Account (Gaia) pairing via `DoGaiaPairing`: displays matching emoji challenge on web UI (`GET /pair/gaia`) or sends via Apprise push for single-device pairing without camera QR scanning. | `internal/gm/gaia_pairing_test.go::TestGaiaPairing_Success` |
-| **`AUTH-05`** | `AUTH` | [x] Complete | **Default Gaia Emoji Pairing & QR Demotion** | PR #50 | Makes Google Account (Gaia) emoji challenge pairing the default path for CLI `pair` and web `GET /pair`; demotes legacy QR code pairing behind explicit `--qr` CLI flag and `?mode=qr` / `?format=png` query parameters. | `internal/gm/pairing_test.go::TestPairingHandlers`, `cmd/gmessages-rag/main_test.go::TestPairCommand_ContextCancel` |
+| **`AUTH-04`** | `AUTH` | [~] Partial | **Single-Device Gaia Pairing after Cookie Import** | PR #36, commit `fd1f7a3` | After cookie import validation, supports Google Account (Gaia) pairing via `PairGaia`: displays the matching emoji challenge on the web UI (`GET/POST /pair`) or sends it via Apprise push for single-device pairing without camera-based linking. **Partial:** the pairing code and its callback/cancellation paths are implemented and tested hermetically; the end-to-end success path requires the gated live smoke test (`HARN-04`). | `internal/gm/gaia_test.go::TestGaiaPairing_CallbackInvocation` |
 | **`DB-01`** | `DB` | [x] Complete | **Schema Migration & Vector Init** | PR #4, #5, #7, #13, #15, #16 | Automatically applies embedded `001_init.sql` creating `conversations`, `conversation_sessions` (with `halfvec(1536)` HNSW), `messages`, `media_attachments`, and `contact_dossiers`. | `internal/db/db_test.go::TestDatabaseMigrations` |
 | **`DB-02`** | `DB` | [x] Complete | **Message & Reaction Ingestion** | PR #4, #5, #7, #13, #15, #16 | Normalizes microsecond/millisecond timestamps to UTC, resolves incoming/outgoing direction, and idempotently upserts messages and emoji reactions. | `internal/db/messages_test.go::TestUpsertMessages_Idempotent` |
 | **`DB-03`** | `DB` | [x] Complete | **2-Hour Session Windowing** | PR #4, #5, #7, #13, #15, #16 | Groups messages separated by $\le 2\text{ hours}$ into `conversation_sessions` with absolute calendar headers and inline media OCR annotations. | `internal/db/sessions_test.go::TestSessionGrouping_2HourGap` |
@@ -59,13 +59,14 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`SEC-02`** | `SEC` | [x] Complete | **Full-Resolution Media Retrieval** | PR #38, commit `8d5b7e4` | When opted-in (`PULL_FULL_SIZE_MEDIA=true`), requests full-resolution image assets via `GetFullSizeImage` before running Vision OCR (default: progressive thumbnail). | `internal/gm/media_test.go::TestMediaDownload_FullSizeOption` |
 | **`SEC-03`** | `SEC` | [x] Complete | **CI Vulnerability Scanning & Race Checks** | Issue #30, commit `30b0cb6` | Enforces `govulncheck` static call-graph vulnerability scanning and `go test -race` concurrency validation in CI and Makefile targets. | GitHub Actions CI & `Makefile::vulncheck` |
 | **`HARN-01`** | `HARN` | [x] Complete | **Protobuf Disturbance Simulation Fixture** | Issue #29, commit `ecac8e2` | In-memory Google Messages WebSocket simulation server injecting synthetic protobuf frames (disconnects, media bursts, typing events, payload corruption) for deterministic CI verification. | `internal/gm/testing/mock_server_test.go::TestMockGMServer_DisturbanceRecovery` |
-| **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and pairing QR visualizer. | `internal/web/ui_test.go::TestUI_DashboardRendering` |
+| **`UI-01`** | `UI` | [x] Complete | **Web Management Dashboard** | PR #46, commit `8dfb444` | Embedded SPA providing live daemon status, database connectivity metrics, tracked contact toggle table, and cookie-import pairing console. | `internal/web/pair_test.go::TestCookiePairHandler` |
 | **`UI-02`** | `UI` | [x] Complete | **Interactive Test Bench (Context-Cortex style)** | PR #45, commit `91e8fcc` | Developer harness in web UI to execute ad-hoc Hybrid RRF queries, test MCP tools with live responses, inspect XML boundaries, and review dossier history diffs. | `internal/web/testbench_test.go::TestUI_TestBenchExecution` |
 | **`UI-03`** | `UI` | [x] Complete | **Parameter & Pipeline Tuner** | PR #44, commit `2407ed6` | Web interface to view and hot-tune pipeline parameters (debouncer idle duration, RRF $k$ factor, OCR model endpoint, backfill window). | `internal/config/tuner_test.go::TestRuntimeTuner_ConcurrentUpdatesAndNotification` |
 | **`UI-05`** | `UI` | [x] Complete | **Embedded Test Bench & Tuner in Dashboard** | PR #49 | Integrates UI-02 (Diagnostic Test Bench) and UI-03 (Runtime Tuner) into tabbed navigation in index.html with interactive MCP tools, hybrid RRF search, guardrail sanitizer, and hot-tuning REST endpoints. | `internal/web/dashboard_test.go::TestDashboardUI_AssetServing` |
 | **`CLEANUP-01`**| `CLEANUP` | [x] Complete | **Dead Code & Error Handling Hardening** | Issue #42, commit `c279ebd` | Purged redundant models, eliminated ignored errors, guaranteed strict error propagation on file operations, and added `goleak` goroutine lifecycle validation. | Full package test suite & `go test -race ./...` |
 | **`DOCKER-01`** | `DOCKER` | [x] Complete | **Hardened Non-Root Container & PUID/PGID** | Issue #42, commit `c279ebd` | Hardened multi-stage non-root container with `PUID`/`PGID` permission handling, `.env.example` alignment, and immutable volume mounts. | `Dockerfile`, `docker-compose.yml` |
 | **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/serve_test.go::TestBuildServeMux_Wiring` |
+| **`SYNC-01`** | `SYNC` | [x] Complete | **Periodic Connection Windows & Ping Tuning** | PR #102 | `SYNC_MODE=periodic` connects for `SYNC_WINDOW_MINUTES` every `SYNC_INTERVAL_MINUTES`, drains tracked conversations incrementally via `ETLPipeline.SyncBatch`, then disconnects without clearing the session cookie. `GM_PING_INTERVAL_MINUTES` and `GM_ALERT_TIMEOUT_COUNT` tune ditto pings. | `internal/gm/sync_test.go::TestPeriodicSyncLoop_ConnectDrainDisconnect`, `internal/config/config_test.go::TestLoadConfig_SyncSettings` |
 | **`REFACTOR-01`**| `REFACTOR`| [x] Complete | **Comprehensive Architecture Purge** | Issue #42, commit `c279ebd` | Holistic code smell elimination, package clean boundaries, and zero-theatre controls verification across all daemon subsystems. | Full repository test suite |
 | **`MCP-00`** | `MCP` | [x] Complete | **2026-07-28 Spec & Ping Support** | Commit `57dad5e` | Strictly adheres to the 2026-07-28 MCP specification: returns `Mcp-Protocol-Version: 2026-07-28` header, handles `ping` JSON-RPC method returning empty object `{}`, supports `initialize`/`notifications/initialized`, and runs over Streamable HTTP (`POST /mcp`), SSE (`GET /sse`), and stdio. | `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
 | **`MCP-01`** | `MCP` | [x] Complete | **`list_conversations` Tool** | Commit `57dad5e` | Lists conversations with IDs, contact names, participant identifiers, tracked status, and last activity timestamp. | `internal/mcpserver/tools_test.go::TestTool_ListConversations` |
@@ -90,37 +91,27 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Description**: Atomically write updated session credentials to `/data/auth/session.json.tmp` with POSIX file mode `0600` and rename to `/data/auth/session.json` upon `*events.PairSuccessful` and `*events.AuthTokenRefreshed`.
 - **Verification**: Verify file mode is strictly `0600` and contents contain valid token state.
 
-### `AUTH-02`: Dual Pairing Workflow
+### `AUTH-02`: Cookie Import Pairing
 - **Category**: `AUTH` (`PositiveFeature`)
-- **Status**: `[x] Complete` (Commit `7456168`, PR #7)
-- **Description**: Supports terminal QR printing (`gmessages-rag pair`) and web UI QR rendering (`GET /pair`) with live refresh.
-- **Verification**: Terminal rendering tests and HTTP handler tests asserting SVG/ANSI QR generation.
+- **Status**: `[x] Complete` (PR #99)
+- **Description**: Supports cookie import from a cURL command copied from browser DevTools, a flat or wrapped JSON object, a JSON array from a cookie export tool, a raw `Cookie:` header, or semicolon-separated pairs. The CLI (`gmessages-rag pair --cookies`) and the web dashboard (`GET/POST /pair`) accept the same formats. The importer validates the required Google cookies (`SID`, `HSID`, `OSID`, `SSID`, `APISID`, `SAPISID`), preserves extras, and never prints cookie values in errors.
+- **Verification**: Parser tests in `internal/gm/cookies_test.go` and HTTP handler tests in `internal/web/pair_test.go` asserting form rendering, JSON status, and fail-closed rejection.
 
 ### `AUTH-03`: Push Alerting & Remote Re-Auth
 - **Category**: `AUTH` (`PositiveFeature`)
 - **Status**: `[x] Complete` (Commit `7456168`, PR #35)
-- **Description**: When Google session tokens fail to refresh, browser pairing is revoked, or authentication unlinks, the daemon sends an alert via Apprise/ntfy with a direct link (or embedded action) to `/pair` on the Web Management UI, allowing users to approve/scan pairing directly from their mobile phone or remote browser without container terminal access.
+- **Description**: When Google session tokens fail to refresh or authentication unlinks, the daemon sends an alert via Apprise/ntfy with a direct link (or embedded action) to `/pair` on the Web Management UI, allowing users to re-import cookies directly from their mobile phone or remote browser without container terminal access.
 - **Verification**: Unit tests verifying alert dispatch payload construction and URL endpoint formatting.
 
-### `AUTH-04`: Single-Device Gaia Pairing (No-QR Flow)
+### `AUTH-04`: Single-Device Gaia Pairing after Cookie Import
 - **Category**: `AUTH` (`PositiveFeature`)
-- **Status**: `[x] Complete` (PR #36, commit `fd1f7a3`)
-- **Description**: Solves the single-device pairing dilemma when no second screen is available. Instead of scanning a camera QR code, `gmessages-rag` leverages Google Messages' native Google Account (Gaia) pairing protocol:
-  1. The daemon triggers `libgm.Client.DoGaiaPairing` (or `StartGaiaPairing`), which requests an interactive challenge from Google.
+- **Status**: `[~] Partial` (PR #36, commit `fd1f7a3`)
+- **Description**: After cookie import validation, `gmessages-rag` leverages Google Messages' native Google Account (Gaia) pairing protocol:
+  1. The daemon calls `libgm.Client.DoGaiaPairing`, which requests an interactive challenge from Google.
   2. Google Messages generates a pairing emoji challenge (e.g. 🐶 / 🚀 / ☕).
-  3. The daemon renders this emoji challenge on `EXTERNAL_WEB_URL/pair/gaia` or pushes the emoji name directly to the user's phone via an Apprise/ntfy push notification.
-  4. The user taps the notification on their phone, opens Google Messages, and simply taps the matching emoji on their screen to grant instant pairing approval without using a camera.
-- **Verification**: Unit tests in `internal/gm/gaia_pairing_test.go` asserting emoji callback invocation, Ukey2 handshake processing, and `PairSuccessful` emission upon challenge confirmation.
-
-### `AUTH-05`: Default Gaia Emoji Pairing & QR Demotion
-- **Category**: `AUTH` (`PositiveFeature`)
-- **Status**: `[x] Complete` (PR #50)
-- **Description**: Configures Google Account (Gaia) emoji pairing as the default pairing mechanism across CLI and web endpoints, demoting QR code scanning to an explicit legacy fallback:
-  1. `gmessages-rag pair` invokes the Gaia emoji challenge flow by default.
-  2. CLI provides an explicit `--qr` flag (`gmessages-rag pair --qr`) to invoke legacy terminal QR code generation.
-  3. Web endpoint `GET /pair` serves the Gaia emoji challenge view and metadata by default.
-  4. Web endpoint serves the legacy QR workflow when `?mode=qr` or `?format=png` is explicitly provided, preserving full backwards compatibility (`AUTH-02`).
-- **Verification**: Unit and CLI tests in `internal/gm/pairing_test.go::TestPairingHandlers` and `cmd/gmessages-rag/main_test.go::TestCLI_RootCommandFlags`, `TestPairCommand_ContextCancel`, and `TestPairCommand_QRErrorHandling`.
+  3. The daemon renders this emoji challenge on `EXTERNAL_WEB_URL/pair` or pushes the emoji name directly to the user's phone via an Apprise/ntfy push notification.
+  4. The user opens Google Messages and taps the matching emoji to grant instant pairing approval without using a camera.
+- **Verification**: Hermetic unit tests in `internal/gm/gaia_test.go` asserting emoji callback invocation and context cancellation. **The end-to-end success path (`PairSuccessful` after challenge confirmation) is only exercised by the gated live smoke test (`HARN-04`).**
 
 ### `DB-01`: Schema Migration & Vector Init
 - **Category**: `DB` (`PositiveFeature`)
@@ -221,7 +212,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 ### `NOTIF-01`: Apprise & ntfy Push Alerting
 - **Category**: `NOTIF` (`PositiveFeature`)
 - **Status**: `[x] Complete` (PR #35, commit `796debd`)
-- **Description**: Multi-channel push notification dispatcher supporting both self-hosted ntfy servers and universal Apprise gateways. Emits high-priority mobile alerts with action buttons for QR/Gaia re-authentication and pairing approvals.
+- **Description**: Multi-channel push notification dispatcher supporting both self-hosted ntfy servers and universal Apprise gateways. Emits high-priority mobile alerts with action buttons for cookie/Gaia re-authentication and pairing approvals.
 - **Verification**: Mock webhook dispatch tests verifying alert payloads and header tags.
 
 ### `NOTIF-02`: Debounced Connection Watchdog
@@ -259,8 +250,8 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 ### `UI-01`: Web Management Dashboard
 - **Category**: `UI` (`PositiveFeature`)
 - **Status**: `[x] Complete` (PR #46, commit `8dfb444`)
-- **Description**: Embedded web UI served on `/` showing daemon status, libgm pairing state (with live QR code rendering), PostgreSQL connectivity and row counts, tracked contact toggles, and recent event logs.
-- **Verification**: Browser and handler tests asserting HTML rendering, JSON status polling, and pairing widget interactivity.
+- **Description**: Embedded web UI served on `/` showing daemon status, libgm pairing state (with cookie import console), PostgreSQL connectivity and row counts, tracked contact toggles, and recent event logs.
+- **Verification**: Browser and handler tests asserting HTML rendering, JSON status polling, and cookie import form interactivity.
 
 ### `UI-02`: Interactive Test Bench (Context-Cortex style)
 - **Category**: `UI` (`PositiveFeature`)
@@ -301,6 +292,12 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Status**: `[x] Complete` (Issue #42, commit `c279ebd`)
 - **Description**: CLI commands (`cmd/gmessages-rag serve` and `pair`) wire all core subsystems into a unified `http.ServeMux` (`/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, `/healthz`), connect the connection watchdog, register action-aware debouncers, and manage graceful shutdown across `SIGINT`/`SIGTERM`.
 - **Verification**: Integration test in `cmd/gmessages-rag/serve_test.go` asserting route dispatch and orderly subsystem shutdown.
+
+### `SYNC-01`: Periodic Connection Windows & Ping Tuning
+- **Category**: `SYNC` (`PositiveFeature`)
+- **Status**: `[x] Complete` (PR #102)
+- **Description**: `SYNC_MODE` selects the connection supervisor. `continuous` keeps the libgm long poll open (real-time). `periodic` connects for `SYNC_WINDOW_MINUTES` every `SYNC_INTERVAL_MINUTES`, runs the shared post-ingestion callback, drains tracked conversations with `ETLPipeline.SyncBatch`, then disconnects. Disconnect closes the long poll without clearing cookies, so the same `session.json` resumes. `GM_PING_INTERVAL_MINUTES` overrides the ditto ping interval; `GM_ALERT_TIMEOUT_COUNT` keeps disconnect detection inside the watchdog grace.
+- **Verification**: `internal/gm/sync_test.go::TestPeriodicSyncLoop_ConnectDrainDisconnect` asserts the connect→drain→disconnect sequence and cancellation; `internal/config/config_test.go::TestLoadConfig_SyncSettings` asserts defaults, overrides, and boundary fallbacks.
 
 ### `REFACTOR-01`: Comprehensive Architecture Purge
 - **Category**: `REFACTOR` (`NonFunctional`)

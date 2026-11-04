@@ -24,6 +24,11 @@ type MediaDownloader interface {
 	DownloadMedia(mediaID string, key []byte) (io.ReadCloser, error)
 }
 
+// DownloadMedia implements MediaDownloader by forwarding to the underlying libgm client.
+func (c *Client) DownloadMedia(mediaID string, key []byte) (io.ReadCloser, error) {
+	return c.libgmClient.DownloadMedia(mediaID, key)
+}
+
 // FullSizeImageDownloader abstracts requesting full-resolution media from libgm.
 // Requirement ID: SEC-02
 type FullSizeImageDownloader interface {
@@ -236,6 +241,18 @@ func ExtractAndSaveMediaWithOptions(ctx context.Context, downloader MediaDownloa
 		ext := DetermineExtension(mimeType, mediaContent.GetMediaName())
 
 		reader, err := downloader.DownloadMedia(mediaID, decryptionKey)
+		if err != nil {
+			// If downloading primary media failed and thumbnail is available, fall back to thumbnail
+			thumbID := mediaContent.GetThumbnailMediaID()
+			thumbKey := mediaContent.GetThumbnailDecryptionKey()
+			if thumbID != "" && len(thumbKey) > 0 && thumbID != mediaID {
+				thumbReader, thumbErr := downloader.DownloadMedia(thumbID, thumbKey)
+				if thumbErr == nil {
+					reader = thumbReader
+					err = nil
+				}
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("download media %s: %w", mediaID, err)
 		}

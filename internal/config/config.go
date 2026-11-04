@@ -26,8 +26,12 @@ type Config struct {
 	SessionGapHours             int
 	DossierDebounceMinutes      int
 	MaxBackfillMessages         int
+	PauseIngestion              bool
 	EnableMCPSendMessage        bool
+	MCPAccessToken              string
 	WebhookURL                  string
+	WebhookAuthToken            string
+	WebhookHMACSecret           string
 	AppriseURL                  string
 	NtfyURL                     string
 	ExternalWebURL              string
@@ -35,6 +39,12 @@ type Config struct {
 	PhoneDisconnectGraceMinutes int
 	PullFullSizeMedia           bool
 	MediaDir                    string
+	DossierDir                  string
+	SyncMode                    string
+	SyncIntervalMinutes         int
+	SyncWindowMinutes           int
+	PingIntervalMinutes         int
+	AlertTimeoutCount           int
 }
 
 // LoadConfig reads configuration from environment variables with fallback defaults.
@@ -50,11 +60,33 @@ func LoadConfig() (*Config, error) {
 	sessionGapHours := getEnvInt("SESSION_GAP_HOURS", 2)
 	debounceMins := getEnvInt("DOSSIER_DEBOUNCE_MINUTES", 30)
 	maxBackfill := getEnvInt("MAX_BACKFILL_MESSAGES", 5000)
+	pauseIngestion := getEnvBool("PAUSE_INGESTION", false)
 	enableSend := getEnvBool("ENABLE_MCP_SEND_MESSAGE", false)
 	notifyOnDisconnect := getEnvBool("NOTIFY_ON_PHONE_DISCONNECT", false)
 	phoneGraceMinutes := getEnvInt("PHONE_DISCONNECT_GRACE_MINUTES", 15)
 	pullFullSizeMedia := getEnvBool("PULL_FULL_SIZE_MEDIA", false)
 	mediaDir := getEnv("MEDIA_DIR", "/data/media")
+	dossierDir := getEnv("DOSSIER_DIR", "/data/dossiers")
+	syncMode := strings.ToLower(getEnv("SYNC_MODE", "continuous"))
+	if syncMode != "periodic" {
+		syncMode = "continuous"
+	}
+	syncIntervalMinutes := getEnvInt("SYNC_INTERVAL_MINUTES", 30)
+	if syncIntervalMinutes < 1 {
+		syncIntervalMinutes = 30
+	}
+	syncWindowMinutes := getEnvInt("SYNC_WINDOW_MINUTES", 5)
+	if syncWindowMinutes < 0 {
+		syncWindowMinutes = 0
+	}
+	pingIntervalMinutes := getEnvInt("GM_PING_INTERVAL_MINUTES", 5)
+	if pingIntervalMinutes < 1 {
+		pingIntervalMinutes = 1
+	}
+	alertTimeoutCount := getEnvInt("GM_ALERT_TIMEOUT_COUNT", 2)
+	if alertTimeoutCount < 1 {
+		alertTimeoutCount = 1
+	}
 
 	trackedRaw := getEnv("TRACKED_CONTACTS", "")
 	var trackedContacts []string
@@ -86,8 +118,12 @@ func LoadConfig() (*Config, error) {
 		SessionGapHours:             sessionGapHours,
 		DossierDebounceMinutes:      debounceMins,
 		MaxBackfillMessages:         maxBackfill,
+		PauseIngestion:              pauseIngestion,
 		EnableMCPSendMessage:        enableSend,
+		MCPAccessToken:              getEnv("MCP_ACCESS_TOKEN", ""),
 		WebhookURL:                  getEnv("WEBHOOK_URL", ""),
+		WebhookAuthToken:            getEnv("WEBHOOK_AUTH_TOKEN", ""),
+		WebhookHMACSecret:           getEnv("WEBHOOK_HMAC_SECRET", ""),
 		AppriseURL:                  getEnv("APPRISE_URL", ""),
 		NtfyURL:                     getEnv("NTFY_URL", ""),
 		ExternalWebURL:              getEnv("EXTERNAL_WEB_URL", "http://localhost:8090"),
@@ -95,6 +131,12 @@ func LoadConfig() (*Config, error) {
 		PhoneDisconnectGraceMinutes: phoneGraceMinutes,
 		PullFullSizeMedia:           pullFullSizeMedia,
 		MediaDir:                    mediaDir,
+		DossierDir:                  dossierDir,
+		SyncMode:                    syncMode,
+		SyncIntervalMinutes:         syncIntervalMinutes,
+		SyncWindowMinutes:           syncWindowMinutes,
+		PingIntervalMinutes:         pingIntervalMinutes,
+		AlertTimeoutCount:           alertTimeoutCount,
 	}
 
 	return cfg, nil

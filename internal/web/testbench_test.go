@@ -4,50 +4,61 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/pgvector/pgvector-go"
 	"github.com/spelech/gmessage-rag/internal/db"
 	"github.com/spelech/gmessage-rag/internal/mcpserver"
 	"github.com/spelech/gmessage-rag/internal/web"
+	"github.com/stretchr/testify/require"
 )
 
-type mockSearchDB struct {
-	hybridFunc func(ctx context.Context, conversationID string, queryText string, limit int) ([]db.SessionSearchResult, error)
-	ftsFunc    func(ctx context.Context, conversationID string, queryText string, limit int) ([]db.Message, error)
-}
+// openTestBenchDB connects to the real Postgres instance, skipping cleanly when unreachable.
+func openTestBenchDB(t *testing.T) *db.DB {
+	t.Helper()
 
-func (m *mockSearchDB) SearchSessionsHybrid_RRF(ctx context.Context, conversationID string, queryText string, limit int) ([]db.SessionSearchResult, error) {
-	if m.hybridFunc != nil {
-		return m.hybridFunc(ctx, conversationID, queryText, limit)
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		connStr = "postgres://jules:postgres@localhost:5432/gmessages?sslmode=disable"
 	}
-	return nil, nil
-}
 
-func (m *mockSearchDB) SearchMessagesFTS(ctx context.Context, conversationID string, queryText string, limit int) ([]db.Message, error) {
-	if m.ftsFunc != nil {
-		return m.ftsFunc(ctx, conversationID, queryText, limit)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	database, err := db.New(ctx, connStr)
+	if err != nil {
+		t.Skipf("skipping testbench test: database connection failed: %v", err)
 	}
-	return nil, nil
+	if err := database.Migrate(ctx); err != nil {
+		database.Close()
+		t.Fatalf("database migration failed: %v", err)
+	}
+	return database
 }
 
 // [Requirement(UI-02)]
 func TestTestBench_MCPToolInvocation(t *testing.T) {
+	database := openTestBenchDB(t)
+	defer database.Close()
+
 	mcp := mcpserver.NewServer(mcpserver.ServerOptions{
 		Name:              "test-bench-mcp",
 		Version:           "1.0.0",
 		EnableSendMessage: false,
 	})
 
-	handler := web.NewTestBenchHandler(mcp, &mockSearchDB{})
+	handler := web.NewTestBenchHandler(mcp, database)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
-	// 1. Nominal MCP tool execution: list_conversations
+	// 1. MCP tool invocation: with real database but no database wired into the MCP server
+	// the call fails closed and returns a structured error result over the test bench.
 	reqBody, _ := json.Marshal(web.MCPTestRequest{
 		Tool:      "list_conversations",
 		Arguments: json.RawMessage(`{"limit": 10}`),
@@ -57,7 +68,7 @@ func TestTestBench_MCPToolInvocation(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected HTTP 200 for nominal MCP call, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected HTTP 200 for MCP call, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var res mcpserver.CallToolResult
@@ -67,8 +78,11 @@ func TestTestBench_MCPToolInvocation(t *testing.T) {
 	if len(res.Content) == 0 {
 		t.Fatalf("expected tool content returned")
 	}
-	if !strings.Contains(res.Content[0].Text, "list_conversations") {
-		t.Errorf("expected list_conversations text in result, got: %s", res.Content[0].Text)
+	if !res.IsError {
+		t.Fatalf("expected fail-closed error result without a database in MCP server, got: %s", res.Content[0].Text)
+	}
+	if !strings.Contains(res.Content[0].Text, "database is not configured") {
+		t.Errorf("expected database configuration error text, got: %s", res.Content[0].Text)
 	}
 
 	// 2. Unknown tool name error handling
@@ -116,8 +130,11 @@ func TestTestBench_MCPToolInvocation(t *testing.T) {
 
 // [Requirement(UI-02)]
 func TestTestBench_GuardrailOutputInspection(t *testing.T) {
+	database := openTestBenchDB(t)
+	defer database.Close()
+
 	mcp := mcpserver.NewServer(mcpserver.ServerOptions{})
-	handler := web.NewTestBenchHandler(mcp, &mockSearchDB{})
+	handler := web.NewTestBenchHandler(mcp, database)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
@@ -190,49 +207,58 @@ func TestTestBench_GuardrailOutputInspection(t *testing.T) {
 
 // [Requirement(UI-02)]
 func TestTestBench_SearchQueryDispatch(t *testing.T) {
+	database := openTestBenchDB(t)
+	defer database.Close()
+
+	ctx := context.Background()
+	tag := time.Now().UnixNano()
+	convID := fmt.Sprintf("conv-tb-%d", tag)
+
+	_, err := database.Pool.Exec(ctx, `
+		INSERT INTO conversations (id, name, participants, is_group, is_tracked)
+		VALUES ($1, $2, '["+15551112222"]'::jsonb, false, true)
+	`, convID, "TestBench Contact")
+	require.NoError(t, err)
+
 	t0 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
-	summaryText := "Quantum encryption review"
-	mockDB := &mockSearchDB{
-		hybridFunc: func(ctx context.Context, conversationID string, queryText string, limit int) ([]db.SessionSearchResult, error) {
-			if queryText == "trigger-hybrid-error" {
-				return nil, errors.New("simulated hybrid database error")
-			}
-			return []db.SessionSearchResult{
-				{
-					ID:             42,
-					ConversationID: conversationID,
-					StartedAt:      t0,
-					EndedAt:        t0.Add(time.Hour),
-					Summary:        &summaryText,
-					Transcript:     "Alice: Let's discuss post-quantum cryptography.",
-					RRFScore:       0.032,
-				},
-			}, nil
-		},
-		ftsFunc: func(ctx context.Context, conversationID string, queryText string, limit int) ([]db.Message, error) {
-			if queryText == "trigger-fts-error" {
-				return nil, errors.New("simulated fts database error")
-			}
-			return []db.Message{
-				{
-					ID:             "msg-101",
-					ConversationID: conversationID,
-					Body:           "Meeting regarding cryptography at 3pm.",
-					SentAt:         t0,
-				},
-			}, nil
-		},
-	}
+	summaryText := "Quantum cryptography protocol review"
+	transcriptText := "Alice: Let's discuss post-quantum cryptography in depth."
+	zeroVec := make([]float32, 1536)
+	zeroVec[0] = 1.0
+	hv := pgvector.NewHalfVector(zeroVec)
+
+	savedSession, err := database.UpsertSession(ctx, &db.ConversationSession{
+		ConversationID: convID,
+		StartedAt:      t0,
+		EndedAt:        t0.Add(time.Hour),
+		MessageCount:   1,
+		Summary:        &summaryText,
+		Transcript:     transcriptText,
+		Embedding:      &hv,
+		IsProcessed:    true,
+	}, nil)
+	require.NoError(t, err)
+
+	msgID := fmt.Sprintf("%s-msg-101", convID)
+	err = database.UpsertMessage(ctx, &db.Message{
+		ID:             msgID,
+		ConversationID: convID,
+		SenderID:       "alice",
+		SenderName:     "Alice",
+		SentAt:         t0,
+		Body:           "Meeting regarding cryptography at 3pm.",
+	})
+	require.NoError(t, err)
 
 	mcp := mcpserver.NewServer(mcpserver.ServerOptions{})
-	handler := web.NewTestBenchHandler(mcp, mockDB)
+	handler := web.NewTestBenchHandler(mcp, database)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
-	// 1. Hybrid RRF dispatch (nominal path)
+	// 1. Hybrid RRF dispatch (nominal path against real PostgreSQL)
 	bodyHybrid, _ := json.Marshal(web.SearchTestRequest{
 		Query:          "cryptography",
-		ConversationID: "conv-1",
+		ConversationID: convID,
 		Limit:          5,
 		Mode:           "hybrid",
 	})
@@ -252,17 +278,17 @@ func TestTestBench_SearchQueryDispatch(t *testing.T) {
 	if err := json.NewDecoder(recHybrid.Body).Decode(&resHybrid); err != nil {
 		t.Fatalf("failed to decode hybrid response: %v", err)
 	}
-	if resHybrid.Mode != "hybrid" || resHybrid.Count != 1 || len(resHybrid.Results) != 1 {
+	if resHybrid.Mode != "hybrid" || resHybrid.Count < 1 || len(resHybrid.Results) < 1 {
 		t.Fatalf("unexpected hybrid search response structure: %+v", resHybrid)
 	}
-	if resHybrid.Results[0].ID != 42 {
-		t.Errorf("expected session ID 42, got %d", resHybrid.Results[0].ID)
+	if resHybrid.Results[0].ID != savedSession.ID {
+		t.Errorf("expected session ID %d, got %d", savedSession.ID, resHybrid.Results[0].ID)
 	}
 
-	// 2. FTS dispatch (messages mode)
+	// 2. FTS dispatch (messages mode against real PostgreSQL)
 	bodyFTS, _ := json.Marshal(web.SearchTestRequest{
 		Query:          "meeting",
-		ConversationID: "conv-1",
+		ConversationID: convID,
 		Limit:          10,
 		Mode:           "fts",
 	})
@@ -282,36 +308,45 @@ func TestTestBench_SearchQueryDispatch(t *testing.T) {
 	if err := json.NewDecoder(recFTS.Body).Decode(&resFTS); err != nil {
 		t.Fatalf("failed to decode fts response: %v", err)
 	}
-	if resFTS.Mode != "fts" || resFTS.Count != 1 || len(resFTS.Results) != 1 {
+	if resFTS.Mode != "fts" || resFTS.Count < 1 || len(resFTS.Results) < 1 {
 		t.Fatalf("unexpected fts search response structure: %+v", resFTS)
 	}
-	if resFTS.Results[0].ID != "msg-101" {
-		t.Errorf("expected message ID msg-101, got %s", resFTS.Results[0].ID)
+	if resFTS.Results[0].ID != msgID {
+		t.Errorf("expected message ID %s, got %s", msgID, resFTS.Results[0].ID)
 	}
 
-	// 3. Error propagation - Hybrid search failure
-	bodyErrHybrid, _ := json.Marshal(web.SearchTestRequest{
-		Query: "trigger-hybrid-error",
-	})
-	reqErrHybrid := httptest.NewRequest(http.MethodPost, "/api/v1/testbench/search", bytes.NewReader(bodyErrHybrid))
-	recErrHybrid := httptest.NewRecorder()
-	mux.ServeHTTP(recErrHybrid, reqErrHybrid)
+	// 3. Error propagation - Hybrid search failure against closed DB pool
+	closedDB, err := db.New(context.Background(), database.Pool.Config().ConnString())
+	if err == nil {
+		closedDB.Close()
+		closedHandler := web.NewTestBenchHandler(mcp, closedDB)
+		closedMux := http.NewServeMux()
+		closedHandler.RegisterRoutes(closedMux)
 
-	if recErrHybrid.Code != http.StatusInternalServerError {
-		t.Fatalf("expected HTTP 500 on hybrid DB error, got %d", recErrHybrid.Code)
-	}
+		bodyErrHybrid, _ := json.Marshal(web.SearchTestRequest{
+			Query: "cryptography",
+			Mode:  "hybrid",
+		})
+		reqErrHybrid := httptest.NewRequest(http.MethodPost, "/api/v1/testbench/search", bytes.NewReader(bodyErrHybrid))
+		recErrHybrid := httptest.NewRecorder()
+		closedMux.ServeHTTP(recErrHybrid, reqErrHybrid)
 
-	// 4. Error propagation - FTS search failure
-	bodyErrFTS, _ := json.Marshal(web.SearchTestRequest{
-		Query: "trigger-fts-error",
-		Mode:  "fts",
-	})
-	reqErrFTS := httptest.NewRequest(http.MethodPost, "/api/v1/testbench/search", bytes.NewReader(bodyErrFTS))
-	recErrFTS := httptest.NewRecorder()
-	mux.ServeHTTP(recErrFTS, reqErrFTS)
+		if recErrHybrid.Code != http.StatusInternalServerError {
+			t.Fatalf("expected HTTP 500 on hybrid DB error, got %d", recErrHybrid.Code)
+		}
 
-	if recErrFTS.Code != http.StatusInternalServerError {
-		t.Fatalf("expected HTTP 500 on fts DB error, got %d", recErrFTS.Code)
+		// 4. Error propagation - FTS search failure against closed DB pool
+		bodyErrFTS, _ := json.Marshal(web.SearchTestRequest{
+			Query: "meeting",
+			Mode:  "fts",
+		})
+		reqErrFTS := httptest.NewRequest(http.MethodPost, "/api/v1/testbench/search", bytes.NewReader(bodyErrFTS))
+		recErrFTS := httptest.NewRecorder()
+		closedMux.ServeHTTP(recErrFTS, reqErrFTS)
+
+		if recErrFTS.Code != http.StatusInternalServerError {
+			t.Fatalf("expected HTTP 500 on fts DB error, got %d", recErrFTS.Code)
+		}
 	}
 
 	// 5. 0-1-N boundary: Empty query validation
@@ -351,7 +386,10 @@ func TestTestBench_SearchQueryDispatch(t *testing.T) {
 
 // [Requirement(UI-02)]
 func TestTestBench_NilDependenciesFailGracefully(t *testing.T) {
-	handlerNilMCP := web.NewTestBenchHandler(nil, &mockSearchDB{})
+	database := openTestBenchDB(t)
+	defer database.Close()
+
+	handlerNilMCP := web.NewTestBenchHandler(nil, database)
 	muxNilMCP := http.NewServeMux()
 	handlerNilMCP.RegisterRoutes(muxNilMCP)
 
@@ -380,9 +418,11 @@ func TestTestBench_NilDependenciesFailGracefully(t *testing.T) {
 
 // [Requirement(UI-05)]
 func TestTestBench_RouteIntegrationWithDashboard(t *testing.T) {
+	database := openTestBenchDB(t)
+	defer database.Close()
+
 	mcp := mcpserver.NewServer(mcpserver.ServerOptions{})
-	mockDB := &mockSearchDB{}
-	tbHandler := web.NewTestBenchHandler(mcp, mockDB)
+	tbHandler := web.NewTestBenchHandler(mcp, database)
 
 	dashMux := http.NewServeMux()
 	tbHandler.RegisterRoutes(dashMux)

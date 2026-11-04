@@ -98,6 +98,80 @@ func TestMediaAttachments_CRUDAndQuery(t *testing.T) {
 	emptyList, err := database.GetMediaAttachmentsForMessage(ctx, "nonexistent-msg-id")
 	require.NoError(t, err)
 	assert.Empty(t, emptyList)
+
+	// 5. Insert unprocessed attachment and test GetUnprocessedMediaAttachments & UpdateMediaAttachmentVision
+	unprocessedMedia := &db.MediaAttachment{
+		MessageID:       msgID,
+		ConversationID:  convID,
+		SHA256Hash:      "abcd000000000000000000000000000000000000000000000000000000001234",
+		RelativePath:    "ab/cd/abcd00000000000000000000000000000000000000000000000000001234.jpg",
+		MimeType:        "image/jpeg",
+		FileSizeBytes:   1024,
+		VisionProcessed: false,
+	}
+	err = database.UpsertMediaAttachment(ctx, unprocessedMedia)
+	require.NoError(t, err)
+	assert.True(t, unprocessedMedia.ID > 0)
+
+	// Query unprocessed
+	unprocessedList, err := database.GetUnprocessedMediaAttachments(ctx, convID, 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, unprocessedList)
+	var foundID int64
+	for _, item := range unprocessedList {
+		if item.ID == unprocessedMedia.ID {
+			foundID = item.ID
+			break
+		}
+	}
+	assert.Equal(t, unprocessedMedia.ID, foundID)
+
+	// Update vision fields
+	newOCR := "EXTRACTED RECEIPT TOTAL: $42.50"
+	newDesc := "A receipt from a grocery store"
+	err = database.UpdateMediaAttachmentVision(ctx, unprocessedMedia.ID, &newOCR, &newDesc, true)
+	require.NoError(t, err)
+
+	// Update non-existent record returns ErrNotFound
+	err = database.UpdateMediaAttachmentVision(ctx, 999999999, &newOCR, &newDesc, true)
+	assert.ErrorIs(t, err, db.ErrNotFound)
+
+	// Verify no longer in unprocessed list
+	unprocessedAfter, err := database.GetUnprocessedMediaAttachments(ctx, convID, 10)
+	require.NoError(t, err)
+	for _, item := range unprocessedAfter {
+		assert.NotEqual(t, unprocessedMedia.ID, item.ID)
+	}
+
+	// Verify updated fields in message attachments
+	updatedAtts, err := database.GetMediaAttachmentsForMessage(ctx, msgID)
+	require.NoError(t, err)
+	var updatedItem *db.MediaAttachment
+	for _, it := range updatedAtts {
+		if it.ID == unprocessedMedia.ID {
+			itemCopy := it
+			updatedItem = &itemCopy
+			break
+		}
+	}
+	require.NotNil(t, updatedItem)
+	assert.True(t, updatedItem.VisionProcessed)
+	require.NotNil(t, updatedItem.OCRText)
+	assert.Equal(t, newOCR, *updatedItem.OCRText)
+	require.NotNil(t, updatedItem.VisualDescription)
+	assert.Equal(t, newDesc, *updatedItem.VisualDescription)
+}
+
+func TestMediaAttachments_NilDBValidation(t *testing.T) {
+	var database *db.DB
+	ctx := context.Background()
+
+	err := database.UpdateMediaAttachmentVision(ctx, 1, nil, nil, true)
+	assert.Error(t, err)
+
+	list, err := database.GetUnprocessedMediaAttachments(ctx, "", 10)
+	assert.Error(t, err)
+	assert.Nil(t, list)
 }
 
 func TestMessages_CountUnindexedAndFTS(t *testing.T) {
@@ -152,7 +226,14 @@ func TestMessages_CountUnindexedAndFTS(t *testing.T) {
 	// Verify count increased by 2
 	newUnindexed, err := database.CountUnindexedMessages(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, initialUnindexed+2, newUnindexed)
+	// CountUnindexedMessages is global; other package test binaries write to the
+	// shared database concurrently, so assert a monotonic increase rather than an
+	// exact delta. Scoped correctness is proven against this conversation below.
+	assert.GreaterOrEqual(t, newUnindexed, initialUnindexed+2)
+
+	unassigned, err := database.GetUnassignedMessages(ctx, convID)
+	require.NoError(t, err)
+	assert.Len(t, unassigned, 2)
 
 	// 2. Full-Text Search (SearchMessagesFTS)
 	results, err := database.SearchMessagesFTS(ctx, convID, "quantum reactor", 10)
@@ -193,5 +274,79 @@ func TestMessages_CountUnindexedAndFTS(t *testing.T) {
 	_, err = database.GetContactDossier(ctx, "")
 	assert.Error(t, err)
 	_, err = database.UpsertContactDossier(ctx, "", "Alice", "# Alice", nil, nil, nil)
+	assert.Error(t, err)
+}
+
+// TestMediaAttachments_Search covers SearchMediaAttachments, consumed by the
+// search_shared_media MCP tool (MCP-05).
+func TestMediaAttachments_Search(t *testing.T) {
+	database := getTestDB(t)
+	defer database.Close()
+	ctx := context.Background()
+
+	convID := "conv-media-search-" + uuid.New().String()
+	require.NoError(t, database.UpsertConversation(ctx, &db.Conversation{ID: convID, Name: "Media Search"}))
+
+	msgID := "msg-media-search-" + uuid.New().String()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	require.NoError(t, database.UpsertMessage(ctx, &db.Message{
+		ID:             msgID,
+		ConversationID: convID,
+		SenderID:       "sender-1",
+		SenderName:     "Alice",
+		SentAt:         now,
+		Body:           "attachment",
+	}))
+
+	// Unique search tokens keep this test independent of other rows in the shared DB.
+	ocrToken := "invoice-" + uuid.New().String()
+	ocr := "INV " + ocrToken
+	desc := "A scanned grocery receipt"
+	require.NoError(t, database.UpsertMediaAttachment(ctx, &db.MediaAttachment{
+		MessageID:         msgID,
+		ConversationID:    convID,
+		SHA256Hash:        uuid.New().String() + uuid.New().String(),
+		RelativePath:      "aa/a1/search-1.png",
+		MimeType:          "image/png",
+		FileSizeBytes:     10,
+		OCRText:           &ocr,
+		VisualDescription: &desc,
+		VisionProcessed:   true,
+	}))
+
+	descToken := "sunset-" + uuid.New().String()
+	desc2 := descToken + " over mountain ridges"
+	require.NoError(t, database.UpsertMediaAttachment(ctx, &db.MediaAttachment{
+		MessageID:         msgID,
+		ConversationID:    convID,
+		SHA256Hash:        uuid.New().String() + uuid.New().String(),
+		RelativePath:      "aa/a1/search-2.jpg",
+		MimeType:          "image/jpeg",
+		FileSizeBytes:     12,
+		VisualDescription: &desc2,
+		VisionProcessed:   true,
+	}))
+
+	// OCR-text match, scoped to the conversation.
+	hits, err := database.SearchMediaAttachments(ctx, convID, ocrToken, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.NotNil(t, hits[0].OCRText)
+	assert.Equal(t, ocr, *hits[0].OCRText)
+
+	// Visual-description match across all conversations (empty scope).
+	hits, err = database.SearchMediaAttachments(ctx, "", descToken, 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.NotNil(t, hits[0].VisualDescription)
+	assert.Equal(t, desc2, *hits[0].VisualDescription)
+
+	// Empty query matches every attachment in scope.
+	all, err := database.SearchMediaAttachments(ctx, convID, "", 10)
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+
+	var nilDB *db.DB
+	_, err = nilDB.SearchMediaAttachments(ctx, convID, "x", 10)
 	assert.Error(t, err)
 }

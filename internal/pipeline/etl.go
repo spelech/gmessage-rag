@@ -15,6 +15,9 @@ import (
 type ETLPipeline struct {
 	Fetcher  gm.MessageFetcher
 	Database *db.DB
+	// Media, when set, persists decrypted attachments for fetched messages so the
+	// Vision service can OCR them (SEC-01).
+	Media *MediaIngestor
 }
 
 // Extract fetches a page of messages using Fetcher.FetchMessages.
@@ -36,8 +39,12 @@ func (p *ETLPipeline) Extract(ctx context.Context, conversationID string, count 
 	}
 
 	var nextCursor []byte
-	if resp.GetCursor() != nil && resp.GetCursor().GetLastItemID() != "" {
-		nextCursor = []byte(resp.GetCursor().GetLastItemID())
+	if c := resp.GetCursor(); c != nil && c.GetLastItemID() != "" {
+		if c.GetLastItemTimestamp() != 0 {
+			nextCursor = []byte(fmt.Sprintf("%s:%d", c.GetLastItemID(), c.GetLastItemTimestamp()))
+		} else {
+			nextCursor = []byte(c.GetLastItemID())
+		}
 	}
 
 	return resp.GetMessages(), nextCursor, nil
@@ -45,6 +52,8 @@ func (p *ETLPipeline) Extract(ctx context.Context, conversationID string, count 
 
 // Transform maps raw protobufs to []*db.Message, normalizing timestamps with
 // gm.NormalizeTimestamp and resolving direction with gm.ResolveSenderDirection.
+// The shared gm.ProtoMessageToDBMessage helper keeps streaming and backfill
+// conversions identical (DRY).
 func (p *ETLPipeline) Transform(rawMsgs []*gmproto.Message, conversationID string) []*db.Message {
 	if len(rawMsgs) == 0 {
 		return []*db.Message{}
@@ -52,91 +61,31 @@ func (p *ETLPipeline) Transform(rawMsgs []*gmproto.Message, conversationID strin
 
 	dbMsgs := make([]*db.Message, 0, len(rawMsgs))
 	for _, rawMsg := range rawMsgs {
-		if rawMsg == nil {
-			continue
+		if dbMsg := gm.ProtoMessageToDBMessage(rawMsg, conversationID, true); dbMsg != nil {
+			dbMsgs = append(dbMsgs, dbMsg)
 		}
-
-		statusCode := int32(0)
-		if rawMsg.GetMessageStatus() != nil {
-			statusCode = int32(rawMsg.GetMessageStatus().GetStatus())
-		}
-		isFromMe, _ := gm.ResolveSenderDirection(statusCode)
-		sentAt := gm.NormalizeTimestamp(rawMsg.GetTimestamp())
-
-		var bodyText string
-		for _, info := range rawMsg.GetMessageInfo() {
-			if mc := info.GetMessageContent(); mc != nil {
-				bodyText = mc.GetContent()
-				break
-			}
-		}
-
-		var replyToID *string
-		if replyMsg := rawMsg.GetReplyMessage(); replyMsg != nil && replyMsg.GetMessageID() != "" {
-			rID := replyMsg.GetMessageID()
-			replyToID = &rID
-		}
-
-		var reactions []db.Reaction
-		for _, rEntry := range rawMsg.GetReactions() {
-			if rEntry == nil || rEntry.GetData() == nil {
-				continue
-			}
-			emoji := rEntry.GetData().GetUnicode()
-			sender := ""
-			if len(rEntry.GetParticipantIDs()) > 0 {
-				sender = rEntry.GetParticipantIDs()[0]
-			}
-			if emoji != "" {
-				reactions = append(reactions, db.Reaction{
-					Sender: sender,
-					Emoji:  emoji,
-				})
-			}
-		}
-
-		senderID := rawMsg.GetParticipantID()
-		if isFromMe {
-			senderID = "me"
-		}
-		senderName := senderID
-		if rawMsg.GetSenderParticipant() != nil && rawMsg.GetSenderParticipant().GetFullName() != "" {
-			senderName = rawMsg.GetSenderParticipant().GetFullName()
-		}
-
-		statusVal := statusCode
-		dbMsg := &db.Message{
-			ID:               rawMsg.GetMessageID(),
-			ConversationID:   conversationID,
-			SenderID:         senderID,
-			SenderName:       senderName,
-			IsFromMe:         isFromMe,
-			SentAt:           sentAt,
-			Body:             bodyText,
-			ReplyToMessageID: replyToID,
-			Reactions:        reactions,
-			RawStatus:        &statusVal,
-			IsBackfill:       true,
-		}
-		dbMsgs = append(dbMsgs, dbMsg)
 	}
 
 	return dbMsgs
 }
 
 // Load batch-upserts messages with Database.UpsertMessagesBatch and updates conversation BackfillCursor.
-func (p *ETLPipeline) Load(ctx context.Context, conversationID string, msgs []*db.Message, nextCursor []byte) error {
+// It returns the number of rows actually inserted (conflicting ids are skipped).
+func (p *ETLPipeline) Load(ctx context.Context, conversationID string, msgs []*db.Message, nextCursor []byte) (int64, error) {
 	if p == nil || p.Database == nil {
-		return errors.New("database cannot be nil")
+		return 0, errors.New("database cannot be nil")
 	}
 	if conversationID == "" {
-		return errors.New("conversationID cannot be empty")
+		return 0, errors.New("conversationID cannot be empty")
 	}
 
+	var inserted int64
 	if len(msgs) > 0 {
-		if _, err := p.Database.UpsertMessagesBatch(ctx, msgs); err != nil {
-			return fmt.Errorf("upsert messages batch: %w", err)
+		n, err := p.Database.UpsertMessagesBatch(ctx, msgs)
+		if err != nil {
+			return 0, fmt.Errorf("upsert messages batch: %w", err)
 		}
+		inserted = n
 	}
 
 	var cursorPtr *string
@@ -146,10 +95,10 @@ func (p *ETLPipeline) Load(ctx context.Context, conversationID string, msgs []*d
 	}
 
 	if err := p.Database.UpdateConversationBackfillCursor(ctx, conversationID, cursorPtr); err != nil {
-		return fmt.Errorf("update conversation cursor: %w", err)
+		return inserted, fmt.Errorf("update conversation cursor: %w", err)
 	}
 
-	return nil
+	return inserted, nil
 }
 
 // RunBatch executes Extract -> Transform -> Load sequentially.
@@ -174,9 +123,56 @@ func (p *ETLPipeline) RunBatch(ctx context.Context, conversationID string, count
 	default:
 	}
 
-	if err := p.Load(ctx, conversationID, transformedMsgs, nextCursor); err != nil {
+	if _, err := p.Load(ctx, conversationID, transformedMsgs, nextCursor); err != nil {
 		return nil, 0, fmt.Errorf("load stage: %w", err)
 	}
 
+	// Persist decrypted media attachments for the freshly loaded messages so the
+	// Vision service can OCR them on the next debounced flush (SEC-01).
+	if p.Media != nil {
+		if _, err := p.Media.IngestMessages(ctx, rawMsgs); err != nil {
+			return nextCursor, len(transformedMsgs), fmt.Errorf("media ingestion stage: %w", err)
+		}
+	}
+
 	return nextCursor, len(transformedMsgs), nil
+}
+
+// SyncBatch fetches the newest page of messages for a conversation and upserts
+// only rows that are not already stored. Unlike RunBatch it does not advance the
+// historical backfill cursor, so it is safe to run every sync window: it walks
+// from the newest message backwards and stops as soon as a page contains no new
+// rows. It returns the number of newly inserted rows.
+func (p *ETLPipeline) SyncBatch(ctx context.Context, conversationID string, count int64, cursor []byte) ([]byte, int64, error) {
+	select {
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	default:
+	}
+
+	rawMsgs, nextCursor, err := p.Extract(ctx, conversationID, count, cursor)
+	if err != nil {
+		return nil, 0, fmt.Errorf("extract stage: %w", err)
+	}
+	if len(rawMsgs) == 0 {
+		return nextCursor, 0, nil
+	}
+
+	transformedMsgs := p.Transform(rawMsgs, conversationID)
+
+	if p.Database == nil {
+		return nil, 0, errors.New("database cannot be nil")
+	}
+	inserted, err := p.Database.UpsertMessagesBatch(ctx, transformedMsgs)
+	if err != nil {
+		return nil, 0, fmt.Errorf("upsert messages batch: %w", err)
+	}
+
+	if p.Media != nil {
+		if _, err := p.Media.IngestMessages(ctx, rawMsgs); err != nil {
+			return nextCursor, inserted, fmt.Errorf("media ingestion stage: %w", err)
+		}
+	}
+
+	return nextCursor, inserted, nil
 }

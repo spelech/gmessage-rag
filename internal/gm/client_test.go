@@ -179,6 +179,70 @@ func TestClient_MessageEventDispatch(t *testing.T) {
 	upsertMu.Unlock()
 }
 
+// [Requirement(PIPE-05)]
+// TestClient_TypingEventDispatch proves the client forwards participant typing
+// indicators to the action-aware debouncer callback (PIPE-05).
+func TestClient_TypingEventDispatch(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+
+	var mu sync.Mutex
+	var gotConvID string
+	var gotType gmproto.TypingTypes
+	var calls int
+
+	client, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+		OnTypingActivity: func(conversationID string, typingType gmproto.TypingTypes) {
+			mu.Lock()
+			gotConvID = conversationID
+			gotType = typingType
+			calls++
+			mu.Unlock()
+		},
+	})
+	require.NoError(t, err)
+
+	// A started-typing event must surface the conversation and type verbatim.
+	client.handleEvent(&gmproto.TypingData{
+		ConversationID: "conv-typing-dispatch",
+		Type:           gmproto.TypingTypes_STARTED_TYPING,
+	})
+
+	mu.Lock()
+	assert.Equal(t, "conv-typing-dispatch", gotConvID)
+	assert.Equal(t, gmproto.TypingTypes_STARTED_TYPING, gotType)
+	assert.Equal(t, 1, calls)
+	mu.Unlock()
+
+	// A stopped-typing event is forwarded too, so the debouncer can distinguish it.
+	client.handleEvent(&gmproto.TypingData{
+		ConversationID: "conv-typing-dispatch",
+		Type:           gmproto.TypingTypes_STOPPED_TYPING,
+	})
+
+	mu.Lock()
+	assert.Equal(t, gmproto.TypingTypes_STOPPED_TYPING, gotType)
+	assert.Equal(t, 2, calls)
+	mu.Unlock()
+
+	// Events without a conversation ID, or with no callback configured, are no-ops.
+	client.handleEvent(&gmproto.TypingData{Type: gmproto.TypingTypes_STARTED_TYPING})
+	client.handleEvent((*gmproto.TypingData)(nil))
+
+	mu.Lock()
+	assert.Equal(t, 2, calls, "empty-conversation and nil typing events must not invoke the callback")
+	mu.Unlock()
+
+	// A client without a typing callback must not panic.
+	plain, err := NewClient(ClientOptions{SessionPath: sessionPath})
+	require.NoError(t, err)
+	plain.handleEvent(&gmproto.TypingData{
+		ConversationID: "conv-no-cb",
+		Type:           gmproto.TypingTypes_STARTED_TYPING,
+	})
+}
+
 func TestClient_AccessorsAndOptions(t *testing.T) {
 	tempDir := t.TempDir()
 	sessionPath := filepath.Join(tempDir, "session.json")
@@ -298,4 +362,70 @@ func TestClient_EventHandling_AllBranches(t *testing.T) {
 	}
 	client.handleIncomingMessage(dummyMsg)
 	assert.Equal(t, 1, upsertCallCount)
+}
+
+// [Requirement(TRANS-04)] [Requirement(AUTH-03)]
+// TestClient_WatchdogEventsDispatch validates that PhoneNotResponding, PhoneRespondingAgain,
+// and ListenFatalError events trigger configured watchdog callbacks.
+func TestClient_WatchdogEventsDispatch(t *testing.T) {
+	tempDir := t.TempDir()
+	sessionPath := filepath.Join(tempDir, "session.json")
+
+	var (
+		mu                 sync.Mutex
+		phoneNotResponding int
+		phoneResponding    int
+		fatalErrReceived   error
+	)
+
+	client, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+		OnPhoneNotResponding: func() {
+			mu.Lock()
+			phoneNotResponding++
+			mu.Unlock()
+		},
+		OnPhoneRespondingAgain: func() {
+			mu.Lock()
+			phoneResponding++
+			mu.Unlock()
+		},
+		OnListenFatalError: func(err error) {
+			mu.Lock()
+			fatalErrReceived = err
+			mu.Unlock()
+		},
+	})
+	require.NoError(t, err)
+
+	// 1. PhoneNotResponding dispatch
+	client.handleEvent(&events.PhoneNotResponding{})
+	mu.Lock()
+	assert.Equal(t, 1, phoneNotResponding)
+	mu.Unlock()
+
+	// 2. PhoneRespondingAgain dispatch
+	client.handleEvent(&events.PhoneRespondingAgain{})
+	mu.Lock()
+	assert.Equal(t, 1, phoneResponding)
+	mu.Unlock()
+
+	// 3. ListenFatalError dispatch
+	expectedFatal := errors.New("unrecoverable stream closure")
+	client.handleEvent(&events.ListenFatalError{Error: expectedFatal})
+	mu.Lock()
+	assert.Equal(t, expectedFatal, fatalErrReceived)
+	mu.Unlock()
+
+	// 4. Client with nil callbacks must handle events without panic
+	plainClient, err := NewClient(ClientOptions{
+		SessionPath: sessionPath,
+	})
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		plainClient.handleEvent(&events.PhoneNotResponding{})
+		plainClient.handleEvent(&events.PhoneRespondingAgain{})
+		plainClient.handleEvent(&events.ListenFatalError{Error: errors.New("nil-cb error")})
+	})
 }

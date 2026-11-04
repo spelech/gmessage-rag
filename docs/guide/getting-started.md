@@ -42,5 +42,5 @@ curl -f http://localhost:8090/healthz
 
 Expected output:
 ```json
-{"status":"healthy","database":"connected","version":"0.1.0"}
+{"status":"healthy","database":"connected","version":"1.0.0"}
 ```

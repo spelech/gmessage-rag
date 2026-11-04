@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-04
+
+### Changed
+- **Cookie Import Pairing (`AUTH-02`)**: Replaced QR device pairing with Matrix-style Google session cookie import. The CLI (`gmessages-rag pair --cookies`) and web dashboard (`GET/POST /pair`) accept a cURL command, JSON map/array, raw `Cookie:` header, or semicolon pairs. The importer validates the required Google cookies and starts the Gaia emoji challenge.
+
+### Added
+- **Periodic Connection Windows (`SYNC-01`, #102)**: New `SYNC_MODE=periodic` connects for `SYNC_WINDOW_MINUTES` every `SYNC_INTERVAL_MINUTES`, drains tracked conversations incrementally with `ETLPipeline.SyncBatch`, then disconnects without clearing the session cookie. `GM_PING_INTERVAL_MINUTES` and `GM_ALERT_TIMEOUT_COUNT` reduce ping wakeups while keeping disconnect detection inside the watchdog grace. `SYNC_MODE=continuous` preserves the previous always-connected behavior.
+- **DB-Backed MCP Tool Handlers (`MCP-01`..`MCP-06`, #79)**: All six builtin MCP tools now execute real queries through `internal/db` (`ListConversations`, `GetContactDossier`/`GetDossierLiveTail`, `SearchSessionsHybrid`, `GetMessagesAroundTime`, `SearchMediaAttachments`, `SetConversationTracked`/`ResetConversationBackfill`) instead of placeholder stubs. Added optional `MCP_ACCESS_TOKEN` bearer enforcement on `tools/call` and a `db.SearchMediaAttachments` query.
+- **Real-Postgres MCP Integration Tests**: `internal/mcpserver/tools_test.go` asserts seeded records flow through the JSON-RPC tool surface (`TestTools_*_RealDB`), skipping cleanly when `DATABASE_URL` is unavailable.
+
 ## [1.0.0-rc2] - 2026-11-02
 
 ### Added

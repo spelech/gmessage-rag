@@ -280,13 +280,14 @@ func TestSearchSessionsHybrid_RRF(t *testing.T) {
 	if len(resultsVector) == 0 {
 		t.Fatalf("expected vector results, got 0")
 	}
-	// Target matches sB, sC, sD closely. Check that sB or sC are ranked high and sA is lower.
+	// Target matches sB, sC, sD closely. B, C, and D share the exact target vector,
+	// so their vector ranks are a tie and any of the three may rank first.
 	topVecResult := resultsVector[0]
 	if topVecResult.ID == sA.ID {
 		t.Errorf("session A should not be top vector match")
 	}
-	if topVecResult.ID != sB.ID && topVecResult.ID != sC.ID {
-		t.Errorf("expected top vector match to be session B (%d) or C (%d), got %d", sB.ID, sC.ID, topVecResult.ID)
+	if topVecResult.ID != sB.ID && topVecResult.ID != sC.ID && topVecResult.ID != sD.ID {
+		t.Errorf("expected top vector match to be one of B (%d), C (%d), D (%d), got %d", sB.ID, sC.ID, sD.ID, topVecResult.ID)
 	}
 
 	// 3. Blended Hybrid Match
@@ -346,5 +347,74 @@ func TestSearchSessionsHybrid_RRF(t *testing.T) {
 	}
 	if resultsLimit1[0].ID != sC.ID {
 		t.Errorf("expected limit=1 result to be Session C, got ID %d", resultsLimit1[0].ID)
+	}
+}
+
+// TestSearchSessionsHybridAllConversations covers the cross-conversation RRF query,
+// consumed by the search_conversation_history MCP tool (MCP-03).
+func TestSearchSessionsHybridAllConversations(t *testing.T) {
+	database := getTestDB(t)
+	defer database.Close()
+
+	ctx := context.Background()
+	tag := time.Now().UnixNano()
+	convA := fmt.Sprintf("conv-rrf-all-a-%d", tag)
+	convB := fmt.Sprintf("conv-rrf-all-b-%d", tag)
+
+	for _, c := range []string{convA, convB} {
+		if _, err := database.Pool.Exec(ctx, `
+			INSERT INTO conversations (id, name, participants, is_group, is_tracked)
+			VALUES ($1, $2, '["+15550002222"]'::jsonb, false, true)
+		`, c, "RRF All Test"); err != nil {
+			t.Fatalf("insert conversation %s failed: %v", c, err)
+		}
+	}
+
+	t0 := time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)
+
+	// A unique token keeps the FTS leg isolated from rows left by earlier runs.
+	token := fmt.Sprintf("zebratoken%d", tag)
+
+	sumA := "Migration planning " + token
+	transA := "Discussed migration corridors for " + token + "."
+	hvA := pgvector.NewHalfVector(makeUnitVec(10))
+	if _, err := database.UpsertSession(ctx, &db.ConversationSession{
+		ConversationID: convA, StartedAt: t0, EndedAt: t0.Add(time.Hour),
+		MessageCount: 1, Summary: &sumA, Transcript: transA, Embedding: &hvA, IsProcessed: true,
+	}, nil); err != nil {
+		t.Fatalf("upsert session A failed: %v", err)
+	}
+
+	sumB := "Conservation fundraising " + token
+	transB := "Planned conservation funding for " + token + "."
+	hvB := pgvector.NewHalfVector(makeUnitVec(11))
+	if _, err := database.UpsertSession(ctx, &db.ConversationSession{
+		ConversationID: convB, StartedAt: t0.Add(2 * time.Hour), EndedAt: t0.Add(3 * time.Hour),
+		MessageCount: 1, Summary: &sumB, Transcript: transB, Embedding: &hvB, IsProcessed: true,
+	}, nil); err != nil {
+		t.Fatalf("upsert session B failed: %v", err)
+	}
+
+	results, err := database.SearchSessionsHybridAllConversations(ctx, token, nil, nil, nil, 100)
+	if err != nil {
+		t.Fatalf("SearchSessionsHybridAllConversations failed: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, r := range results {
+		if r.ConversationID == convA || r.ConversationID == convB {
+			found[r.ConversationID] = true
+		}
+	}
+	if !found[convA] || !found[convB] {
+		t.Fatalf("expected sessions from both conversations, got found=%v (n=%d)", found, len(results))
+	}
+}
+
+func TestGetSessionsSince_UnitValidation(t *testing.T) {
+	d := &db.DB{}
+	_, err := d.GetSessionsSince(context.Background(), "", nil)
+	if err == nil {
+		t.Fatal("expected error for empty conversationID, got nil")
 	}
 }

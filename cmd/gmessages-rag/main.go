@@ -23,13 +23,20 @@ var serveCmd = &cobra.Command{
 
 var pairCmd = &cobra.Command{
 	Use:   "pair",
-	Short: "Initiate Google Messages pairing via Gaia emoji challenge (default) or legacy QR",
-	RunE:  runPair,
+	Short: "Pair Google Messages by importing Google session cookies (Matrix-style)",
+	Long: `Pair Google Messages by importing Google session cookies copied from a signed-in browser.
+
+Sign in to https://messages.google.com/web in your browser, open DevTools, go to the
+Network tab, select a request to messages.google.com, right-click it, and choose
+"Copy" -> "Copy as cURL". Paste that cURL command when prompted. The daemon validates
+the cookies, saves the session, and then starts the Gaia emoji challenge so you can
+tap the matching emoji in Google Messages on your phone.`,
+	RunE: runPair,
 }
 
 func init() {
-	pairCmd.Flags().BoolVar(&qrFlag, "qr", false, "Use legacy QR code terminal pairing instead of Google Account emoji challenge (AUTH-05)")
-
+	pairCmd.Flags().StringVar(&cookiesFlag, "cookies", "", "Read cookies from this file (JSON, cURL, or Cookie header); use '-' for stdin. If omitted, cookies are read from stdin.")
+	pairCmd.Flags().StringVar(&pairSessionFlag, "session", "", "Path to session.json (defaults to data/auth/session.json or SESSION_PATH)")
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(pairCmd)
 }

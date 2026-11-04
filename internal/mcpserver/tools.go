@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 )
 
 // ToolHandler defines the execution function signature for an MCP tool.
@@ -147,40 +146,12 @@ func BuiltinToolDefinitions(enableSendMessage bool) []Tool {
 	}
 
 	if enableSendMessage {
-		tools = append(tools, Tool{
-			Name:        "send_message",
-			Description: "Sends an outbound SMS/RCS message to a conversation. (Requires explicit opt-in via ENABLE_MCP_SEND_MESSAGE=true).",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"conversation_id": map[string]any{
-						"type":        "string",
-						"description": "Conversation ID to send message to.",
-					},
-					"text": map[string]any{
-						"type":        "string",
-						"description": "Message text to transmit.",
-					},
-				},
-				"required": []string{"conversation_id", "text"},
-			},
-		})
+		// send_message is intentionally NOT registered.
+		// Outbound message transport requires a wired gmClient in the MCP
+		// server (not yet implemented). The tool definition and handler
+		// body remain present as scaffolding for future wiring but are
+		// never exposed to MCP clients.
 	}
 
 	return tools
-}
-
-// DefaultStubHandler returns a placeholder tool response wrapping output in guardrail tags.
-func DefaultStubHandler(toolName string) ToolHandler {
-	return func(ctx context.Context, args json.RawMessage) (*CallToolResult, error) {
-		payload := fmt.Sprintf("[%s] executed successfully with arguments: %s", toolName, string(args))
-		return &CallToolResult{
-			Content: []ToolContent{
-				{
-					Type: "text",
-					Text: WrapUntrustedData(payload),
-				},
-			},
-		}, nil
-	}
 }

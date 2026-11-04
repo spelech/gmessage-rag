@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/spelech/gmessage-rag/internal/gm/testing/emulator"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
+	exhttp "go.mau.fi/util/exhttp"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -34,6 +38,7 @@ type MockGMServer struct {
 	disturbance  DisturbanceType
 	delay        time.Duration
 	eventHistory [][]byte
+	emu          *emulator.Transport
 }
 
 // NewMockGMServer creates and starts a new mock Google Messages server.
@@ -41,6 +46,7 @@ func NewMockGMServer() *MockGMServer {
 	s := &MockGMServer{
 		clients:      make(map[chan []byte]struct{}),
 		eventHistory: make([][]byte, 0),
+		emu:          emulator.NewTransport(),
 	}
 
 	mux := http.NewServeMux()
@@ -66,6 +72,67 @@ func (s *MockGMServer) Close() {
 	s.mu.Unlock()
 
 	s.server.Close()
+}
+
+// Settings returns exhttp.ClientSettings that route every libgm request through
+// this fixture's in-process emulator transport. Tests pass it to gm.ClientOptions.
+func (s *MockGMServer) Settings() *exhttp.ClientSettings {
+	return &exhttp.ClientSettings{
+		TransportOverride: func(exhttp.ClientSettings) http.RoundTripper { return s.Transport() },
+	}
+}
+
+// Transport returns an http.RoundTripper that serves libgm RPCs from the
+// in-process emulator and applies the fixture's active disturbance.
+func (s *MockGMServer) Transport() http.RoundTripper {
+	return &disturbedTransport{parent: s, emu: s.emu}
+}
+
+// SetPaired marks the emulator as past the pairing handshake.
+func (s *MockGMServer) SetPaired(v bool) { s.emu.SetPaired(v) }
+
+// SetRequestCipher installs the session cipher used for RPC encryption.
+func (s *MockGMServer) SetRequestCipher(c emulator.RequestCipher) { s.emu.SetRequestCipher(c) }
+
+// SetMessagePages registers cursor-addressed FetchMessages pages for a conversation.
+func (s *MockGMServer) SetMessagePages(conversationID string, pages map[string]emulator.MessagePage) {
+	s.emu.SetMessagePages(conversationID, pages)
+}
+
+// SetContacts registers the contact book returned by ListContacts.
+func (s *MockGMServer) SetContacts(contacts []*gmproto.Contact) { s.emu.SetContacts(contacts) }
+
+// SetMedia registers plaintext media returned (encrypted) by the emulated /upload endpoint.
+func (s *MockGMServer) SetMedia(mediaID string, plaintext, key []byte) {
+	s.emu.SetMedia(mediaID, plaintext, key)
+}
+
+// disturbedTransport injects the fixture's disturbance into the emulated RPC surface.
+type disturbedTransport struct {
+	parent *MockGMServer
+	emu    *emulator.Transport
+}
+
+func (d *disturbedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	d.parent.mu.RLock()
+	dist := d.parent.disturbance
+	delay := d.parent.delay
+	d.parent.mu.RUnlock()
+
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+
+	if dist == DisturbanceHTTPError {
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       io.NopCloser(strings.NewReader("synthetic 503 service unavailable")),
+			Request:    req,
+		}, nil
+	}
+
+	return d.emu.RoundTrip(req)
 }
 
 // SetDisturbance configures an active disturbance mode.

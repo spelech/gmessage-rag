@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,36 +19,64 @@ import (
 // DefaultSessionPath is the default path to persist session credentials.
 const DefaultSessionPath = "/data/auth/session.json"
 
+// newLibGMClient is the constructor seam for the underlying libgm client.
+// Tests replace it to inject hermetic HTTP client settings (HARN-03) without forking libgm.
+var newLibGMClient = libgm.NewClient
+
 // MessageUpsertFunc is called whenever a message is received or processed.
 type MessageUpsertFunc func(ctx context.Context, msg *gmproto.Message, isFromMe bool, sentAt time.Time) error
 
 // ConversationActivityFunc is called to reset or notify conversation activity (e.g. idle debouncer).
 type ConversationActivityFunc func(conversationID string)
 
+// TypingActivityFunc is called when a participant typing indicator arrives for a conversation (PIPE-05).
+type TypingActivityFunc func(conversationID string, typingType gmproto.TypingTypes)
+
+// PhoneStatusFunc is called when phone responsiveness state changes (TRANS-04).
+type PhoneStatusFunc func()
+
+// FatalErrorFunc is called when libgm encounters an unrecoverable listener error (AUTH-03).
+type FatalErrorFunc func(err error)
+
 // ClientOptions configures the GM client wrapper.
 type ClientOptions struct {
-	SessionPath          string
-	Logger               zerolog.Logger
-	OnMessageUpsert      MessageUpsertFunc
-	OnConversationActive ConversationActivityFunc
-	HTTPClientSettings   *exhttp.ClientSettings
+	SessionPath            string
+	Logger                 zerolog.Logger
+	OnMessageUpsert        MessageUpsertFunc
+	OnConversationActive   ConversationActivityFunc
+	OnTypingActivity       TypingActivityFunc
+	OnPhoneNotResponding   PhoneStatusFunc
+	OnPhoneRespondingAgain PhoneStatusFunc
+	OnListenFatalError     FatalErrorFunc
+	HTTPClientSettings     *exhttp.ClientSettings
 }
 
 // Client wraps libgm.Client with session lifecycle, normalization, and event dispatch.
 type Client struct {
-	libgmClient          *libgm.Client
-	authData             *libgm.AuthData
-	sessionPath          string
-	logger               zerolog.Logger
-	onMessageUpsert      MessageUpsertFunc
-	onConversationActive ConversationActivityFunc
+	libgmClient            *libgm.Client
+	authData               *libgm.AuthData
+	sessionPath            string
+	logger                 zerolog.Logger
+	onMessageUpsert        MessageUpsertFunc
+	onConversationActive   ConversationActivityFunc
+	onTypingActivity       TypingActivityFunc
+	onPhoneNotResponding   PhoneStatusFunc
+	onPhoneRespondingAgain PhoneStatusFunc
+	onListenFatalError     FatalErrorFunc
 
 	mu            sync.RWMutex
 	pairDone      chan struct{}
 	lastPairError error
-	currentQR     string
 	currentEmoji  string
+	connecting    bool
 }
+
+// Compile-time conformance for the ingestion seams the daemon and ETL consume.
+var (
+	_ MessageFetcher  = (*Client)(nil)
+	_ ContactsFetcher = (*Client)(nil)
+	_ MediaDownloader = (*Client)(nil)
+)
 
 // NewClient initializes a new GM Client wrapper.
 func NewClient(opts ClientOptions) (*Client, error) {
@@ -66,16 +95,20 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		httpSettings = *opts.HTTPClientSettings
 	}
 
-	libgmCli := libgm.NewClient(authData, nil, opts.Logger, httpSettings)
+	libgmCli := newLibGMClient(authData, nil, opts.Logger, httpSettings)
 
 	c := &Client{
-		libgmClient:          libgmCli,
-		authData:             authData,
-		sessionPath:          sessionPath,
-		logger:               opts.Logger,
-		onMessageUpsert:      opts.OnMessageUpsert,
-		onConversationActive: opts.OnConversationActive,
-		pairDone:             make(chan struct{}),
+		libgmClient:            libgmCli,
+		authData:               authData,
+		sessionPath:            sessionPath,
+		logger:                 opts.Logger,
+		onMessageUpsert:        opts.OnMessageUpsert,
+		onConversationActive:   opts.OnConversationActive,
+		onTypingActivity:       opts.OnTypingActivity,
+		onPhoneNotResponding:   opts.OnPhoneNotResponding,
+		onPhoneRespondingAgain: opts.OnPhoneRespondingAgain,
+		onListenFatalError:     opts.OnListenFatalError,
+		pairDone:               make(chan struct{}),
 	}
 
 	libgmCli.SetEventHandler(c.handleEvent)
@@ -88,11 +121,50 @@ func NewClient(opts ClientOptions) (*Client, error) {
 func (c *Client) FetchMessages(ctx context.Context, conversationID string, count int64, cursor []byte) (*gmproto.ListMessagesResponse, error) {
 	var protoCursor *gmproto.Cursor
 	if len(cursor) > 0 {
-		protoCursor = &gmproto.Cursor{
-			LastItemID: string(cursor),
+		s := string(cursor)
+		if parts := strings.SplitN(s, ":", 2); len(parts) == 2 {
+			var ts int64
+			_, _ = fmt.Sscanf(parts[1], "%d", &ts)
+			protoCursor = &gmproto.Cursor{
+				LastItemID:        parts[0],
+				LastItemTimestamp: ts,
+			}
+		} else {
+			protoCursor = &gmproto.Cursor{
+				LastItemID: s,
+			}
 		}
 	}
-	return c.libgmClient.FetchMessages(ctx, conversationID, count, protoCursor)
+	resp, err := c.libgmClient.FetchMessages(ctx, conversationID, count, protoCursor)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
+}
+
+// ListConversations wraps libgm.Client.ListConversations to fetch remote conversations.
+func (c *Client) ListConversations(ctx context.Context, count int64) (*gmproto.ListConversationsResponse, error) {
+	req := &gmproto.ListConversationsRequest{
+		Count:  count,
+		Folder: gmproto.ListConversationsRequest_INBOX,
+	}
+	resp, err := c.libgmClient.ListConversations(ctx, req)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
+}
+
+// ListContacts wraps libgm.Client.ListContacts, exposing the Google Contacts roster for
+// dossier enrichment (PIPE-04).
+func (c *Client) ListContacts(ctx context.Context) (*gmproto.ListContactsResponse, error) {
+	resp, err := c.libgmClient.ListContacts(ctx)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
+}
+
+// ListTopContacts wraps libgm.Client.ListTopContacts, exposing the frequently contacted roster
+// for dossier enrichment (PIPE-04).
+func (c *Client) ListTopContacts(ctx context.Context) (*gmproto.ListTopContactsResponse, error) {
+	resp, err := c.libgmClient.ListTopContacts(ctx)
+	_ = SaveAuthData(c.sessionPath, c.authData)
+	return resp, err
 }
 
 // LibGM returns the underlying libgm.Client.
@@ -189,11 +261,30 @@ func (c *Client) handleEvent(evt any) {
 	case *gmproto.Message:
 		c.handleIncomingMessage(e)
 
+	case *gmproto.TypingData:
+		c.handleTypingData(e)
+
+	case *events.PhoneNotResponding:
+		c.logger.Warn().Msg("Phone is not responding")
+		if c.onPhoneNotResponding != nil {
+			c.onPhoneNotResponding()
+		}
+
+	case *events.PhoneRespondingAgain:
+		c.logger.Info().Msg("Phone is responding again")
+		if c.onPhoneRespondingAgain != nil {
+			c.onPhoneRespondingAgain()
+		}
+
 	case *events.ListenFatalError:
 		c.logger.Error().Err(e.Error).Msg("Fatal listener error in libgm")
 		c.mu.Lock()
 		c.lastPairError = e.Error
+		c.connecting = false
 		c.mu.Unlock()
+		if c.onListenFatalError != nil {
+			c.onListenFatalError(e.Error)
+		}
 
 	default:
 		c.logger.Trace().Type("event_type", evt).Msg("Received other libgm event")
@@ -204,6 +295,7 @@ func (c *Client) handleIncomingMessage(msg *gmproto.Message) {
 	if msg == nil {
 		return
 	}
+	_ = SaveAuthData(c.sessionPath, c.authData)
 
 	convID := msg.GetConversationID()
 	if convID != "" && c.onConversationActive != nil {
@@ -226,18 +318,51 @@ func (c *Client) handleIncomingMessage(msg *gmproto.Message) {
 	}
 }
 
+// handleTypingData forwards a participant typing indicator to the action-aware
+// debouncer so an active conversation holds its idle window open (PIPE-05).
+func (c *Client) handleTypingData(data *gmproto.TypingData) {
+	if data == nil {
+		return
+	}
+
+	convID := data.GetConversationID()
+	if convID == "" || c.onTypingActivity == nil {
+		return
+	}
+
+	c.onTypingActivity(convID, data.GetType())
+}
+
 // Connect starts connection recovery or background session.
+// It is idempotent if the client is already connected or actively polling.
 func (c *Client) Connect(ctx context.Context) error {
 	if !c.libgmClient.IsLoggedIn() {
 		return errors.New("cannot connect: client is not logged in / paired")
 	}
-	return c.libgmClient.Connect(ctx)
+	c.mu.Lock()
+	if c.connecting {
+		c.mu.Unlock()
+		return nil
+	}
+	c.connecting = true
+	c.mu.Unlock()
+
+	err := c.libgmClient.Connect(ctx)
+	if err != nil {
+		c.mu.Lock()
+		c.connecting = false
+		c.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
-// ReconnectLoop handles reconnection with exponential backoff.
+// ReconnectLoop maintains connection health by periodically checking connection status
+// rather than tight-spinning on Connect().
 func (c *Client) ReconnectLoop(ctx context.Context) {
-	backoff := 1 * time.Second
+	backoff := 5 * time.Second
 	const maxBackoff = 60 * time.Second
+	const checkInterval = 15 * time.Second
 
 	for {
 		select {
@@ -255,9 +380,20 @@ func (c *Client) ReconnectLoop(ctx context.Context) {
 			}
 		}
 
-		err := c.libgmClient.Connect(ctx)
+		// If libgm is already connected, wait for checkInterval before checking again
+		if c.libgmClient.IsConnected() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(checkInterval):
+				continue
+			}
+		}
+
+		c.logger.Info().Msg("Google Messages client not connected, establishing connection...")
+		err := c.Connect(ctx)
 		if err != nil {
-			c.logger.Warn().Err(err).Dur("retry_in", backoff).Msg("Connection lost, retrying")
+			c.logger.Warn().Err(err).Dur("retry_in", backoff).Msg("Connect attempt failed, backing off")
 			select {
 			case <-ctx.Done():
 				return
@@ -265,7 +401,58 @@ func (c *Client) ReconnectLoop(ctx context.Context) {
 			}
 			backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 		} else {
-			backoff = 1 * time.Second
+			backoff = 5 * time.Second
+			// Wait for connection to settle
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(checkInterval):
+			}
 		}
 	}
+}
+
+// Disconnect tears down the long-poll connection without clearing the session
+// cookies or the pairing. A later Connect resumes the same session, which the
+// periodic sync loop relies on.
+func (c *Client) Disconnect() {
+	if c == nil || c.libgmClient == nil {
+		return
+	}
+	c.libgmClient.Disconnect()
+	c.mu.Lock()
+	c.connecting = false
+	c.mu.Unlock()
+}
+
+// IsConnected reports whether the libgm long-poll connection is currently open.
+func (c *Client) IsConnected() bool {
+	if c == nil || c.libgmClient == nil {
+		return false
+	}
+	return c.libgmClient.IsConnected()
+}
+
+// IsLoggedIn reports whether a paired session with cookies is loaded.
+func (c *Client) IsLoggedIn() bool {
+	if c == nil || c.libgmClient == nil {
+		return false
+	}
+	return c.libgmClient.IsLoggedIn()
+}
+
+// SetPingInterval overrides the ditto ping interval. libgm accepts 1m..4h.
+func (c *Client) SetPingInterval(d time.Duration) {
+	if c == nil || c.libgmClient == nil {
+		return
+	}
+	c.libgmClient.SetPingInterval(d)
+}
+
+// SetAlertTimeoutCount overrides how many missed pings mark the phone unresponsive.
+func (c *Client) SetAlertTimeoutCount(n int) {
+	if c == nil || c.libgmClient == nil {
+		return
+	}
+	c.libgmClient.SetAlertTimeoutCount(n)
 }
