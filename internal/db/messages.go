@@ -153,6 +153,85 @@ WHERE id = $1;
 	return nil
 }
 
+// AddReaction appends a reaction to a message's reactions JSONB array. It is
+// idempotent: adding a reaction already present leaves the row unchanged. It
+// returns ErrNotFound when the message does not exist.
+func (d *DB) AddReaction(ctx context.Context, messageID, sender, emoji string) error {
+	if d == nil || d.Pool == nil {
+		return fmt.Errorf("database pool is not connected")
+	}
+	if messageID == "" {
+		return fmt.Errorf("message id is required")
+	}
+	if emoji == "" {
+		return fmt.Errorf("emoji is required")
+	}
+	if sender == "" {
+		sender = "me"
+	}
+
+	payload, err := json.Marshal([]Reaction{{Sender: sender, Emoji: emoji}})
+	if err != nil {
+		return fmt.Errorf("marshal reaction: %w", err)
+	}
+
+	const addReactionSQL = `
+UPDATE messages
+SET reactions = reactions || $2::jsonb
+WHERE id = $1
+  AND NOT reactions @> $2::jsonb;
+`
+	tag, err := d.Pool.Exec(ctx, addReactionSQL, messageID, payload)
+	if err != nil {
+		return fmt.Errorf("add reaction: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Either the message is missing or the reaction already exists. Distinguish
+		// the two so callers do not treat an idempotent add as a failure.
+		var exists bool
+		if err := d.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM messages WHERE id = $1)`, messageID).Scan(&exists); err != nil {
+			return fmt.Errorf("check message existence: %w", err)
+		}
+		if !exists {
+			return ErrNotFound
+		}
+	}
+	return nil
+}
+
+// RemoveReaction removes a (sender, emoji) reaction from a message's reactions
+// JSONB array. It is idempotent and returns ErrNotFound when the message does
+// not exist.
+func (d *DB) RemoveReaction(ctx context.Context, messageID, sender, emoji string) error {
+	if d == nil || d.Pool == nil {
+		return fmt.Errorf("database pool is not connected")
+	}
+	if messageID == "" {
+		return fmt.Errorf("message id is required")
+	}
+	if sender == "" {
+		sender = "me"
+	}
+
+	const removeReactionSQL = `
+UPDATE messages
+SET reactions = COALESCE(
+        (SELECT jsonb_agg(elem)
+         FROM jsonb_array_elements(reactions) AS elem
+         WHERE NOT (elem->>'sender' = $2 AND elem->>'emoji' = $3)),
+        '[]'::jsonb)
+WHERE id = $1;
+`
+	tag, err := d.Pool.Exec(ctx, removeReactionSQL, messageID, sender, emoji)
+	if err != nil {
+		return fmt.Errorf("remove reaction: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // GetMessagesAroundTime retrieves messages for a conversation within ±windowMinutes of targetTime, sorted by sent_at ASC.
 func (d *DB) GetMessagesAroundTime(ctx context.Context, conversationID string, targetTime time.Time, windowMinutes int) ([]Message, error) {
 	if windowMinutes <= 0 {

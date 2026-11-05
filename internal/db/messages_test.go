@@ -350,6 +350,103 @@ func TestMessages_ReactionArrayAndDeduplication(t *testing.T) {
 }
 
 // [Requirement(DB-02)]
+func TestMessages_AddRemoveReaction(t *testing.T) {
+	database := getTestDB(t)
+	defer database.Close()
+
+	ctx := context.Background()
+	convID := fmt.Sprintf("conv-addreact-%d", time.Now().UnixNano())
+
+	if err := database.UpsertConversation(ctx, &db.Conversation{
+		ID:   convID,
+		Name: "Add/Remove Reaction Test",
+	}); err != nil {
+		t.Fatalf("create conversation failed: %v", err)
+	}
+
+	msgID := fmt.Sprintf("msg-addreact-%d", time.Now().UnixNano())
+	sentAt := time.Now().UTC().Truncate(time.Microsecond)
+	if err := database.UpsertMessage(ctx, &db.Message{
+		ID:             msgID,
+		ConversationID: convID,
+		SenderID:       "sender-1",
+		SenderName:     "Sender One",
+		SentAt:         sentAt,
+		Body:           "add/remove reaction target",
+		Reactions:      []db.Reaction{},
+	}); err != nil {
+		t.Fatalf("UpsertMessage failed: %v", err)
+	}
+
+	// Nominal add and idempotent re-add.
+	for i := 0; i < 2; i++ {
+		if err := database.AddReaction(ctx, msgID, "me", "👍"); err != nil {
+			t.Fatalf("AddReaction attempt %d failed: %v", i+1, err)
+		}
+	}
+
+	msgs, err := database.GetMessagesAroundTime(ctx, convID, sentAt, 5)
+	if err != nil {
+		t.Fatalf("GetMessagesAroundTime failed: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if len(msgs[0].Reactions) != 1 {
+		t.Fatalf("expected exactly 1 reaction after idempotent add, got %+v", msgs[0].Reactions)
+	}
+	if msgs[0].Reactions[0].Sender != "me" || msgs[0].Reactions[0].Emoji != "👍" {
+		t.Fatalf("unexpected reaction: %+v", msgs[0].Reactions[0])
+	}
+
+	// Add a second distinct reaction.
+	if err := database.AddReaction(ctx, msgID, "me", "🔥"); err != nil {
+		t.Fatalf("AddReaction second emoji failed: %v", err)
+	}
+
+	// Remove the first reaction; the second must survive.
+	if err := database.RemoveReaction(ctx, msgID, "me", "👍"); err != nil {
+		t.Fatalf("RemoveReaction failed: %v", err)
+	}
+
+	msgs, err = database.GetMessagesAroundTime(ctx, convID, sentAt, 5)
+	if err != nil {
+		t.Fatalf("GetMessagesAroundTime after remove failed: %v", err)
+	}
+	if len(msgs[0].Reactions) != 1 || msgs[0].Reactions[0].Emoji != "🔥" {
+		t.Fatalf("expected only 🔥 after removing 👍, got %+v", msgs[0].Reactions)
+	}
+
+	// Remove the last reaction; removal is idempotent.
+	if err := database.RemoveReaction(ctx, msgID, "me", "🔥"); err != nil {
+		t.Fatalf("RemoveReaction final failed: %v", err)
+	}
+	if err := database.RemoveReaction(ctx, msgID, "me", "🔥"); err != nil {
+		t.Fatalf("idempotent RemoveReaction failed: %v", err)
+	}
+	msgs, err = database.GetMessagesAroundTime(ctx, convID, sentAt, 5)
+	if err != nil {
+		t.Fatalf("GetMessagesAroundTime after final remove failed: %v", err)
+	}
+	if len(msgs[0].Reactions) != 0 {
+		t.Fatalf("expected no reactions after removal, got %+v", msgs[0].Reactions)
+	}
+
+	// Non-existent message fails closed.
+	if err := database.AddReaction(ctx, "missing-msg", "me", "👍"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for AddReaction on missing message, got %v", err)
+	}
+	if err := database.RemoveReaction(ctx, "missing-msg", "me", "👍"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for RemoveReaction on missing message, got %v", err)
+	}
+
+	// Empty emoji is rejected.
+	if err := database.AddReaction(ctx, msgID, "me", ""); err == nil {
+		t.Fatalf("expected error for empty emoji on AddReaction")
+	}
+}
+
+// [Requirement(DB-02)]
 func TestMessages_WindowQueryAroundTime(t *testing.T) {
 	database := getTestDB(t)
 	defer database.Close()
