@@ -68,10 +68,10 @@ func (c *Client) getSendSettle() time.Duration {
 }
 
 // withConnection runs fn while a long-poll connection is available. If the
-// client is already connected it reuses that connection and leaves it open
-// (the periodic sync loop owns its lifetime). Otherwise it opens a short-lived
-// connection, runs fn, holds briefly for the outgoing echo, and disconnects.
-// This is the connect-on-send strategy for periodic sync mode.
+// client is already connected it reuses that connection. Otherwise it opens a
+// connection, runs fn, and holds briefly so the outgoing echo can arrive. The
+// connection is left open (strategy 1a): the periodic sync loop owns teardown
+// at the end of its window, and intermediate sends reuse the same connection.
 func (c *Client) withConnection(ctx context.Context, fn func(context.Context) error) error {
 	if c == nil || c.libgmClient == nil {
 		return errors.New("gm client is not initialized")
@@ -89,11 +89,6 @@ func (c *Client) withConnection(ctx context.Context, fn func(context.Context) er
 	if err := c.Connect(connectCtx); err != nil {
 		return fmt.Errorf("connect for send: %w", err)
 	}
-
-	// This call owns the connection, so close it after the send. Connect starts
-	// the long-poll listener asynchronously; the send RPC's response is
-	// delivered through it, so there is no need to wait for IsConnected() first.
-	defer c.Disconnect()
 
 	if err := fn(ctx); err != nil {
 		return err
