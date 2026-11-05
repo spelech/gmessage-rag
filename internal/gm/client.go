@@ -69,6 +69,10 @@ type Client struct {
 	lastPairError error
 	currentEmoji  string
 	connecting    bool
+	// sendSettle is how long connect-on-send holds an otherwise-unused
+	// connection open after the RPC so the outgoing echo can arrive and be
+	// persisted by the event pipeline (periodic sync mode).
+	sendSettle time.Duration
 }
 
 // Compile-time conformance for the ingestion seams the daemon and ETL consume.
@@ -109,6 +113,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		onPhoneRespondingAgain: opts.OnPhoneRespondingAgain,
 		onListenFatalError:     opts.OnListenFatalError,
 		pairDone:               make(chan struct{}),
+		sendSettle:             2 * time.Second,
 	}
 
 	libgmCli.SetEventHandler(c.handleEvent)

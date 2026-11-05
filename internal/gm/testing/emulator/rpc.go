@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	gmcrypto "go.mau.fi/mautrix-gmessages/pkg/libgm/crypto"
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
@@ -135,6 +136,15 @@ func (t *Transport) buildRPCResponse(action gmproto.ActionType, encryptedReq []b
 
 	case gmproto.ActionType_IS_BUGLE_DEFAULT:
 		return &gmproto.IsBugleDefaultResponse{Success: true}
+
+	case gmproto.ActionType_SEND_MESSAGE:
+		// A successful send is acknowledged on the long-poll stream. The
+		// synthetic echo event that carries the assigned message ID is emitted
+		// separately by the caller/tests when they want one.
+		return &gmproto.SendMessageResponse{Status: gmproto.SendMessageResponse_SUCCESS}
+
+	case gmproto.ActionType_SEND_REACTION:
+		return &gmproto.SendReactionResponse{Success: true}
 	}
 	return nil
 }
@@ -191,10 +201,10 @@ func (t *Transport) enqueueResponse(requestID string, action gmproto.ActionType,
 		MessageData: messageData,
 	}
 
-	select {
-	case t.responses <- incoming:
-	default:
-	}
+	// Block until the long-poll receiver consumes the response. A non-blocking
+	// send silently drops responses when the listener is momentarily busy or
+	// not yet started, leaving synchronous sends to time out.
+	t.responses <- incoming
 	return nil
 }
 
@@ -271,4 +281,58 @@ func encryptMediaFixture(f mediaFixture) ([]byte, error) {
 		return nil, fmt.Errorf("emulator (HARN-02): encrypt media: %w", err)
 	}
 	return encrypted, nil
+}
+
+// handleMediaUploadStart implements the resumable-upload "start" leg. It mints
+// a media ID and returns the finalize URL plus the headers libgm expects.
+func (t *Transport) handleMediaUploadStart(req *http.Request) (*http.Response, error) {
+	_, _ = io.Copy(io.Discard, req.Body)
+	_ = req.Body.Close()
+
+	mediaID := fmt.Sprintf("emulator-media-%d", time.Now().UnixNano())
+	uploadURL := "https://instantmessaging-pa.googleapis.com/upload/finalize?media_id=" + mediaID
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+	headers.Set("x-goog-upload-url", uploadURL)
+	headers.Set("x-goog-upload-chunk-granularity", "0")
+	headers.Set("x-goog-upload-status", "active")
+	headers.Set("x-guploader-uploadid", mediaID)
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     headers,
+		Body:       io.NopCloser(bytes.NewReader(nil)),
+		Request:    req,
+	}, nil
+}
+
+// handleMediaUploadFinalize completes the resumable upload and returns a
+// base64-encoded UploadMediaResponse carrying the media ID.
+func (t *Transport) handleMediaUploadFinalize(req *http.Request) (*http.Response, error) {
+	_, _ = io.Copy(io.Discard, req.Body)
+	_ = req.Body.Close()
+
+	mediaID := req.URL.Query().Get("media_id")
+	if mediaID == "" {
+		mediaID = "emulator-media-unknown"
+	}
+
+	payload, err := proto.Marshal(&gmproto.UploadMediaResponse{
+		Media: &gmproto.UploadedMedia{MediaID: mediaID, MediaNumber: 1},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("emulator (HARN-02): marshal upload response: %w", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(payload)
+
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":         []string{"application/x-protobuf"},
+			"x-goog-upload-status": []string{"final"},
+		},
+		Body:    io.NopCloser(bytes.NewReader([]byte(encoded))),
+		Request: req,
+	}, nil
 }

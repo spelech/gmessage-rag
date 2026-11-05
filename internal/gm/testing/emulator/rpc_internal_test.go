@@ -156,6 +156,32 @@ func TestTransport_HandleSendMessageQueuesResponse(t *testing.T) {
 }
 
 // [Requirement(HARN-02)]
+func TestTransport_HandleMediaUpload(t *testing.T) {
+	tr := NewTransport()
+
+	startResp, err := tr.handleMediaUploadStart(httptest.NewRequest(http.MethodPost, "https://gm/$rpc/upload", nil))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, startResp.StatusCode)
+	uploadURL := startResp.Header.Get("x-goog-upload-url")
+	require.Contains(t, uploadURL, "/upload/finalize")
+	assert.Equal(t, "0", startResp.Header.Get("x-goog-upload-chunk-granularity"))
+	assert.NotEmpty(t, startResp.Header.Get("x-guploader-uploadid"))
+
+	finalReq := httptest.NewRequest(http.MethodPost, uploadURL, bytes.NewReader([]byte("encrypted-media-bytes")))
+	finalResp, err := tr.handleMediaUploadFinalize(finalReq)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, finalResp.StatusCode)
+
+	body, err := io.ReadAll(finalResp.Body)
+	require.NoError(t, err)
+	decoded, err := base64.StdEncoding.DecodeString(string(body))
+	require.NoError(t, err)
+	var uploadResp gmproto.UploadMediaResponse
+	require.NoError(t, proto.Unmarshal(decoded, &uploadResp))
+	assert.NotEmpty(t, uploadResp.GetMedia().GetMediaID())
+}
+
+// [Requirement(HARN-02)]
 func TestTransport_HandleMediaDownload(t *testing.T) {
 	tr := NewTransport()
 	key := gmcrypto.GenerateKey(32)

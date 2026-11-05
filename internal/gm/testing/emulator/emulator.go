@@ -134,7 +134,13 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	case strings.HasSuffix(path, "/SendMessage"):
 		return t.handleSendMessage(req)
 
+	case strings.HasSuffix(path, "/upload/finalize"):
+		return t.handleMediaUploadFinalize(req)
+
 	case strings.HasSuffix(path, "/upload"):
+		if req.Method == http.MethodPost {
+			return t.handleMediaUploadStart(req)
+		}
 		return t.handleMediaDownload(req)
 
 	case strings.HasSuffix(path, "/AckMessages"):

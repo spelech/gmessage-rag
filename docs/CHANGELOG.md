@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Outbound `send_message` MCP Tool (`MCP-07`, #81)**: `gmessages-rag` can now send text, base64 media, and emoji reactions (add/remove) into an existing conversation. The new `internal/gm` send layer (`SendText`, `SendMedia`, `SendReaction`) uses connect-on-send: it reuses an open long-poll connection or opens a short-lived one, then holds it briefly so the outgoing echo is persisted. The tool is registered only when `ENABLE_MCP_SEND_MESSAGE=true` and a paired `gm.Client` sender is wired (`GUARD-02`). Reaction changes persist explicitly through the new `db.AddReaction`/`db.RemoveReaction` helpers. Added real-Postgres handler tests and emulator-backed send tests, plus emulator resumable-upload support.
+
 ## [1.0.0] - 2026-11-04
 
 ### Changed

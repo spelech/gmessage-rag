@@ -22,17 +22,20 @@ type ServerOptions struct {
 	EnableSendMessage bool
 	// Database backs every builtin tool handler. A nil database fails every call closed.
 	Database Database
+	// Sender carries outbound text, media, and reaction sends. A nil sender
+	// keeps send_message unavailable even when EnableSendMessage is true.
+	Sender MessageSender
 	// AccessToken, when non-empty, is required for every tools/call invocation.
 	AccessToken string
 }
 
 // Server coordinates JSON-RPC 2.0 handling under the 2026-07-28 MCP specification.
 type Server struct {
-	mu                sync.RWMutex
-	serverInfo        Implementation
-	tools             map[string]registeredTool
-	enableSendMessage bool
-	accessToken       string
+	mu          sync.RWMutex
+	serverInfo  Implementation
+	tools       map[string]registeredTool
+	sender      MessageSender
+	accessToken string
 }
 
 // NewServer initializes an MCP server with core tool definitions and 2026-07-28 protocol compliance.
@@ -49,14 +52,18 @@ func NewServer(opts ServerOptions) *Server {
 			Name:    opts.Name,
 			Version: opts.Version,
 		},
-		tools:             make(map[string]registeredTool),
-		enableSendMessage: opts.EnableSendMessage,
-		accessToken:       opts.AccessToken,
+		tools:       make(map[string]registeredTool),
+		sender:      opts.Sender,
+		accessToken: opts.AccessToken,
 	}
 
+	// send_message is only available when explicitly enabled and a transport
+	// is wired. Anything else fails closed.
+	enableSend := opts.EnableSendMessage && opts.Sender != nil
+
 	// Register core tools backed by the database layer
-	for _, tool := range BuiltinToolDefinitions(opts.EnableSendMessage) {
-		s.RegisterTool(tool, builtinHandler(tool.Name, opts.Database))
+	for _, tool := range BuiltinToolDefinitions(enableSend) {
+		s.RegisterTool(tool, builtinHandler(tool.Name, opts.Database, opts.Sender))
 	}
 
 	return s
