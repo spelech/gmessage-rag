@@ -80,6 +80,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`UI-03`** | `UI` | [x] Complete | **Parameter & Pipeline Tuner** | PR #44, commit `2407ed6` | Web interface to view and hot-tune pipeline parameters (debouncer idle duration, RRF $k$ factor, OCR model endpoint, backfill window). | `internal/config/tuner_test.go::TestRuntimeTuner_ConcurrentUpdatesAndNotification` |
 | **`UI-05`** | `UI` | [~] Partial | **Embedded Test Bench & Tuner in Dashboard** | PR #49 | Integrates UI-02 and UI-03 into tabbed navigation with interactive MCP tools, hybrid RRF search, guardrail sanitizer, and hot-tuning REST endpoints. **Partial:** panels and tuner work; embedded MCP tool calls resolve to stubs. | `internal/web/dashboard_test.go::TestDashboardUI_AssetServing` |
 | **`UI-06`** | `UI` | [x] Complete | **VitePress Google Brand Theme** | Issue #71, PR #74, commit `f0458c0` | Custom VitePress theme (`docs/.vitepress/theme`) applies the Google four-color palette (blue #4285F4, green #34A853, yellow #FBBC05, red #EA4335) to brand/tip/warning/danger tokens with light and dark variants, a four-color hero wordmark, and a palette-aligned Mermaid theme. | `docs/.vitepress/theme/custom.css`, screenshots `assets/screenshots/docs_home_light.png` |
+| **`UI-07`** | `UI` | [x] Complete | **Compose & Send Tab** | PR #107 | Adds a Compose & Send tab for text, reactions, and streaming media uploads, plus the `send_message` option in the test bench. Both appear only when `/api/v1/status` reports `send_enabled=true`, so the UI matches the daemon's actual capability. | `internal/web/send_test.go::TestStatus_SendEnabled`, `internal/web/send_test.go::TestSendHandler_ReactionPersists` |
 | **`CLEANUP-01`**| `CLEANUP` | [x] Complete | **Dead Code & Error Handling Hardening** | Issue #42, commit `c279ebd` | Eliminated ignored errors, enforced strict error propagation on file operations, and added `goleak` goroutine lifecycle validation. | `gate:Makefile` (`make test`), `go test -race ./...` |
 | **`DOCKER-01`** | `DOCKER` | [x] Complete | **Hardened Non-Root Container & PUID/PGID** | Issue #42, commit `c279ebd` | Hardened multi-stage non-root container with `PUID`/`PGID` permission handling, `.env.example` alignment, and immutable volume mounts. | `Dockerfile`, `docker-compose.yml` |
 | **`DAEMON-01`** | `DAEMON` | [x] Complete | **Unified End-to-End Daemon Orchestration** | Issue #42, commit `c279ebd` | Orchestrated root `ServeMux` linking `/`, `/api/*`, `/testbench`, `/mcp`, `/metrics`, and `/healthz` with graceful SIGINT/SIGTERM shutdown and background ETL sync. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` |
@@ -97,6 +98,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`TRANS-02`** | `TRANS` | [x] Complete | **Streamable MCP & SSE Endpoints** | Commit `57dad5e` | Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
 | **`TRANS-03`** | `TRANS` | [x] Complete | **Briefing API & Outbound Webhook** | Issue #80 | Exposes `/api/v1/briefing` and `/api/v1/briefing/today` returning per tracked contact what changed since a caller-supplied `since` (RFC3339) or a default 24h lookback, sourced from `contact_dossier_history` with dossier-derived Markdown wrapped in untrusted-data boundaries. Dispatches a signed POST to `WEBHOOK_URL` (optional bearer/HMAC auth) with bounded backoff when the dossier reconciler updates a dossier. | `internal/web/briefing_test.go::TestBriefingAPI_ChangedSince`, `internal/notify/webhook_test.go::TestWebhookDispatch_RetriesOnFailure`, `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` |
 | **`TRANS-04`** | `TRANS` | [x] Complete | **Configurable Diagnostics Alerts** | PR #35, commit `796debd` | Monitors phone responsiveness (`PhoneNotResponding`), but alerts only if configured (`NOTIFY_ON_PHONE_DISCONNECT=true`) and debounced by $N$ minutes. | `internal/notify/watchdog_test.go::TestWatchdog_PhoneDisconnect_GracePeriodTrigger` |
+| **`TRANS-05`** | `TRANS` | [x] Complete | **Web Outbound Send API** | PR #107 | Exposes `POST /api/v1/send` for JSON text and reactions and `POST /api/v1/send/media` for multipart streaming media uploads. Both endpoints fail closed with HTTP 403 when outbound send is disabled. The multipart path streams the request body and caps uploads at 100 MiB, avoiding base64 and JSON-RPC overhead. | `internal/web/send_test.go::TestSendHandler_Text`, `internal/web/send_test.go::TestSendHandler_MediaMultipart`, `internal/web/send_test.go::TestSendHandler_Disabled` |
 | **`INT-01`** | `INT` | [ ] Deferred | **Home Assistant MQTT Bridge** | Held (Issue #32) | Supplements outbound webhooks with an optional MQTT client bridge. **Note:** Deferred/held in favor of universal Apprise/ntfy push alerting and Prometheus metrics. | `internal/mqtt` baseline |
 
 ---
@@ -331,6 +333,12 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Description**: A custom VitePress theme (`docs/.vitepress/theme/index.ts` + `custom.css`) themes the documentation portal with Google's four brand colors: blue `#4285F4` for brand/primary, green `#34A853` for tip/success, yellow `#FBBC05` for warning/highlight, and red `#EA4335` for danger/error. Dark mode uses lighter tints for contrast. The home hero wordmark uses a four-color gradient, and the Mermaid theme is palette-aligned.
 - **Verification**: `npm run docs:build` succeeds; light and dark screenshots captured at `assets/screenshots/docs_home_*.png` and `assets/screenshots/docs_guide_*.png` via headless Chromium.
 
+### `UI-07`: Compose & Send Tab
+- **Category**: `UI` (`PositiveFeature`)
+- **Status**: `[x] Complete` (PR #107)
+- **Description**: Adds a Compose & Send tab to the dashboard for text, reaction, and streaming media sends, plus the `send_message` option in the diagnostic test bench. The tab and option appear only when `GET /api/v1/status` reports `send_enabled=true`, so the UI never offers a send action the daemon cannot perform.
+- **Verification**: Status-flag coverage in `internal/web/send_test.go::TestStatus_SendEnabled` and reaction flow coverage in `internal/web/send_test.go::TestSendHandler_ReactionPersists`.
+
 ### `CLEANUP-01`: Dead Code & Error Handling Hardening
 - **Category**: `CLEANUP` (`NonFunctional`)
 - **Status**: `[x] Complete` (Issue #42, commit `c279ebd`)
@@ -436,6 +444,12 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Status**: `[x] Complete` (PR #35, commit `796debd`)
 - **Description**: Monitors `libgm` connection events (`PhoneNotResponding`, `PhoneRespondingAgain`, `ListenFatalError`). To avoid alert fatigue from transient workplace cell dropouts, notification dispatch via Apprise/ntfy is optional (`NOTIFY_ON_PHONE_DISCONNECT=true`, default `false`) and requires silence exceeding a configurable grace period (default 15 minutes) before triggering an alert.
 - **Verification**: Unit tests verifying debounced notification suppression for brief network reconnects.
+
+### `TRANS-05`: Web Outbound Send API
+- **Category**: `TRANS` (`PositiveFeature`)
+- **Status**: `[x] Complete` (PR #107)
+- **Description**: Exposes `POST /api/v1/send` for JSON text and reaction sends and `POST /api/v1/send/media` for multipart streaming media uploads. Both endpoints fail closed with HTTP 403 when outbound send is disabled, and report capability through `send_enabled` on `GET /api/v1/status`. The multipart handler streams the request body and caps a single upload at 100 MiB, side-stepping the base64 inflation and JSON-RPC framing of the MCP path while `libgm` still buffers at its API boundary.
+- **Verification**: Handler coverage in `internal/web/send_test.go` for gating, text, reaction persistence, multipart media, and size limits.
 
 ### `INT-01`: Home Assistant MQTT Bi-Directional Bridge
 - **Category**: `INT` (`PositiveFeature`)
