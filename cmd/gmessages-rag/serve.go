@@ -655,13 +655,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// 7. Initialize MCP Server, Runtime Tuner, and Root Mux
-	mcpServer := mcpserver.NewServer(mcpserver.ServerOptions{
+	mcpOptions := mcpserver.ServerOptions{
 		Name:              "gmessages-rag",
 		Version:           "1.0.0",
 		EnableSendMessage: cfg.EnableMCPSendMessage,
 		Database:          database,
 		AccessToken:       cfg.MCPAccessToken,
-	})
+	}
+	if cfg.EnableMCPSendMessage {
+		mcpOptions.Sender = gmClient
+	}
+	mcpServer := mcpserver.NewServer(mcpOptions)
 
 	tuner := config.NewRuntimeTuner(config.TunerSettings{
 		DebouncerIdleMinutes: cfg.DossierDebounceMinutes,

@@ -146,11 +146,56 @@ func BuiltinToolDefinitions(enableSendMessage bool) []Tool {
 	}
 
 	if enableSendMessage {
-		// send_message is intentionally NOT registered.
-		// Outbound message transport requires a wired gmClient in the MCP
-		// server (not yet implemented). The tool definition and handler
-		// body remain present as scaffolding for future wiring but are
-		// never exposed to MCP clients.
+		tools = append(tools, Tool{
+			Name:        "send_message",
+			Description: "Sends a text message, media attachment (base64), or emoji reaction (add/remove) into an existing conversation. Exactly one of text, media_base64, or reaction_emoji must be provided.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conversation_id": map[string]any{
+						"type":        "string",
+						"description": "Target conversation ID.",
+					},
+					"text": map[string]any{
+						"type":        "string",
+						"description": "Plain text message body. Use this for a text send.",
+					},
+					"reply_to_message_id": map[string]any{
+						"type":        "string",
+						"description": "Optional message ID to reply to (text and media sends).",
+					},
+					"media_base64": map[string]any{
+						"type":        "string",
+						"description": "Base64-encoded media bytes. Use this for a media send.",
+					},
+					"media_file_name": map[string]any{
+						"type":        "string",
+						"description": "File name for the media attachment (default: attachment).",
+					},
+					"media_mime_type": map[string]any{
+						"type":        "string",
+						"description": "MIME type for the media attachment (default: application/octet-stream).",
+					},
+					"caption": map[string]any{
+						"type":        "string",
+						"description": "Optional caption sent alongside media.",
+					},
+					"reaction_message_id": map[string]any{
+						"type":        "string",
+						"description": "Message ID to react to. Use this for a reaction send.",
+					},
+					"reaction_emoji": map[string]any{
+						"type":        "string",
+						"description": "Emoji to add as a reaction.",
+					},
+					"reaction_remove": map[string]any{
+						"type":        "boolean",
+						"description": "If true, remove the reaction instead of adding it.",
+					},
+				},
+				"required": []string{"conversation_id"},
+			},
+		})
 	}
 
 	return tools

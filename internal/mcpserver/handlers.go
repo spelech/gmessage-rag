@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spelech/gmessage-rag/internal/db"
+	"github.com/spelech/gmessage-rag/internal/gm"
 )
 
 // Database defines the persistence operations consumed by the MCP tool handlers.
@@ -24,19 +26,24 @@ type Database interface {
 	GetMessagesAroundTime(ctx context.Context, conversationID string, targetTime time.Time, windowMinutes int) ([]db.Message, error)
 	GetMediaAttachmentsForMessage(ctx context.Context, messageID string) ([]db.MediaAttachment, error)
 	SearchMediaAttachments(ctx context.Context, conversationID, query string, limit int) ([]db.MediaAttachment, error)
+	GetConversation(ctx context.Context, id string) (*db.Conversation, error)
+	AddReaction(ctx context.Context, messageID, sender, emoji string) error
+	RemoveReaction(ctx context.Context, messageID, sender, emoji string) error
 }
 
 // errDatabaseNotConfigured is returned when a tool is invoked without a database.
 var errDatabaseNotConfigured = errors.New("database is not configured for the MCP server")
 
-// toolHandlers binds the MCP tool surface to a persistence layer.
+// toolHandlers binds the MCP tool surface to a persistence layer and an
+// optional outbound message transport.
 type toolHandlers struct {
 	database Database
+	sender   MessageSender
 }
 
-// builtinHandler selects the DB-backed handler for a builtin tool name.
-func builtinHandler(name string, database Database) ToolHandler {
-	h := &toolHandlers{database: database}
+// builtinHandler selects the handler for a builtin tool name.
+func builtinHandler(name string, database Database, sender MessageSender) ToolHandler {
+	h := &toolHandlers{database: database, sender: sender}
 	switch name {
 	case "list_conversations":
 		return h.listConversations
@@ -63,9 +70,139 @@ func (h *toolHandlers) unknownTool(name string) ToolHandler {
 	}
 }
 
-// sendMessage fails closed: the outbound transport is not wired into the MCP server.
-func (h *toolHandlers) sendMessage(context.Context, json.RawMessage) (*CallToolResult, error) {
-	return nil, errors.New("send_message is unavailable: no outbound transport is configured")
+// maxOutboundMediaBytes caps decoded media accepted by send_message so a
+// single tool call cannot exhaust memory or the upload path.
+const maxOutboundMediaBytes = 10 << 20 // 10 MiB
+
+// sendMessageArg is the union request accepted by the send_message tool.
+type sendMessageArg struct {
+	ConversationID    string `json:"conversation_id"`
+	Text              string `json:"text"`
+	ReplyToMessageID  string `json:"reply_to_message_id"`
+	MediaBase64       string `json:"media_base64"`
+	MediaFileName     string `json:"media_file_name"`
+	MediaMimeType     string `json:"media_mime_type"`
+	Caption           string `json:"caption"`
+	ReactionMessageID string `json:"reaction_message_id"`
+	ReactionEmoji     string `json:"reaction_emoji"`
+	ReactionRemove    bool   `json:"reaction_remove"`
+}
+
+// sendMessage dispatches one outbound send: reaction, media, or text. The
+// handler fails closed when no transport is wired. Reaction sends persist the
+// change explicitly because message upserts use ON CONFLICT DO NOTHING; text
+// and media persistence relies on the outgoing event echo.
+func (h *toolHandlers) sendMessage(ctx context.Context, args json.RawMessage) (*CallToolResult, error) {
+	if h.sender == nil {
+		return nil, errors.New("send_message is unavailable: no outbound transport is configured")
+	}
+
+	var a sendMessageArg
+	if err := decodeArgs(args, &a); err != nil {
+		return nil, err
+	}
+
+	conversationID := strings.TrimSpace(a.ConversationID)
+	if conversationID == "" {
+		return nil, errors.New("conversation_id is required")
+	}
+
+	reactionMessageID := strings.TrimSpace(a.ReactionMessageID)
+	hasReaction := reactionMessageID != ""
+	hasMedia := strings.TrimSpace(a.MediaBase64) != ""
+	hasText := strings.TrimSpace(a.Text) != ""
+
+	modes := 0
+	if hasReaction {
+		modes++
+	}
+	if hasMedia {
+		modes++
+	}
+	if hasText {
+		modes++
+	}
+	if modes == 0 {
+		return nil, errors.New("provide text, media_base64, or reaction_message_id")
+	}
+	if modes > 1 {
+		return nil, errors.New("provide only one of text, media_base64, or reaction_message_id per call")
+	}
+
+	// Reaction branch: send first, then persist the reaction locally.
+	if hasReaction {
+		emoji := strings.TrimSpace(a.ReactionEmoji)
+		if emoji == "" {
+			return nil, errors.New("reaction_emoji is required when reaction_message_id is set")
+		}
+		if h.database == nil {
+			return nil, errDatabaseNotConfigured
+		}
+
+		if err := h.sender.SendReaction(ctx, reactionMessageID, emoji, a.ReactionRemove, nil); err != nil {
+			return nil, fmt.Errorf("send reaction: %w", err)
+		}
+
+		var persistErr error
+		if a.ReactionRemove {
+			persistErr = h.database.RemoveReaction(ctx, reactionMessageID, "me", emoji)
+		} else {
+			persistErr = h.database.AddReaction(ctx, reactionMessageID, "me", emoji)
+		}
+		if persistErr != nil {
+			return nil, fmt.Errorf("reaction sent but persistence failed: %w", persistErr)
+		}
+
+		action := "added"
+		if a.ReactionRemove {
+			action = "removed"
+		}
+		return jsonToolResult(map[string]any{
+			"conversation_id": conversationID,
+			"message_id":      reactionMessageID,
+			"emoji":           emoji,
+			"action":          action,
+			"status":          "sent",
+		})
+	}
+
+	// Media branch: base64 decode with a size cap, then upload/send.
+	if hasMedia {
+		decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(a.MediaBase64))
+		if err != nil {
+			return nil, fmt.Errorf("media_base64 is not valid base64: %w", err)
+		}
+		if len(decoded) == 0 {
+			return nil, errors.New("media_base64 decoded to zero bytes")
+		}
+		if len(decoded) > maxOutboundMediaBytes {
+			return nil, fmt.Errorf("media exceeds %d byte limit", maxOutboundMediaBytes)
+		}
+
+		res, err := h.sender.SendMedia(ctx, gm.OutgoingMedia{
+			ConversationID: conversationID,
+			FileName:       strings.TrimSpace(a.MediaFileName),
+			MimeType:       strings.TrimSpace(a.MediaMimeType),
+			Data:           decoded,
+			Caption:        strings.TrimSpace(a.Caption),
+			ReplyToID:      strings.TrimSpace(a.ReplyToMessageID),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("send media: %w", err)
+		}
+		return jsonToolResult(res)
+	}
+
+	// Text branch.
+	res, err := h.sender.SendText(ctx, gm.OutgoingMessage{
+		ConversationID: conversationID,
+		Text:           strings.TrimSpace(a.Text),
+		ReplyToID:      strings.TrimSpace(a.ReplyToMessageID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("send text: %w", err)
+	}
+	return jsonToolResult(res)
 }
 
 type listConversationsArgs struct {
