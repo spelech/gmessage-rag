@@ -74,7 +74,10 @@ func BuildServeMuxWithTuner(database *db.DB, gmClient *gm.Client, mcpSrv *mcpser
 	tbHandler.RegisterRoutes(rootMux)
 
 	// 5. Web UI Dashboard and API: /, /dashboard, /pair, /api/v1/*
-	dashHandler := web.NewDashboardHandlerWithTuner(database, gmClient, tuner)
+	// The dashboard mirrors the MCP server's send capability so the UI only
+	// exposes compose/send when outbound messaging is actually wired.
+	sendEnabled := mcpSrv != nil && mcpSrv.SendEnabled()
+	dashHandler := web.NewDashboardHandlerWithSend(database, gmClient, tuner, sendEnabled)
 	rootMux.Handle("/", dashHandler)
 
 	return rootMux

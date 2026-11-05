@@ -39,8 +39,17 @@ func NewDashboardHandler(database *db.DB, gmClient *gm.Client) http.Handler {
 // - GET /api/v1/briefing and GET /api/v1/briefing/today
 // - GET/POST /pair (cookie-import pairing UI and API)
 func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner) http.Handler {
+	return NewDashboardHandlerWithSend(database, gmClient, tuner, false)
+}
+
+// NewDashboardHandlerWithSend constructs an http.Handler and exposes the
+// outbound send endpoints when sendEnabled is true. It routes the same surface
+// as NewDashboardHandlerWithTuner plus:
+// - POST /api/v1/send (JSON text or reaction)
+// - POST /api/v1/send/media (multipart streaming upload)
+func NewDashboardHandlerWithSend(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner, sendEnabled bool) http.Handler {
 	mux := http.NewServeMux()
-	api := NewAPIHandlerWithTuner(database, gmClient, tuner)
+	api := NewAPIHandlerWithSend(database, gmClient, tuner, sendEnabled)
 
 	// API endpoints
 	mux.HandleFunc("/api/v1/status", api.HandleStatus)
@@ -49,6 +58,14 @@ func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *c
 	mux.HandleFunc("/api/v1/tuner", api.HandleTuner)
 	mux.HandleFunc("/api/v1/briefing", api.HandleBriefing)
 	mux.HandleFunc("/api/v1/briefing/today", api.HandleBriefing)
+
+	// Outbound send endpoints. They fail closed when disabled, and the UI hides
+	// the send tab when /api/v1/status reports send_enabled=false.
+	var sender MessageSender
+	if gmClient != nil {
+		sender = gmClient
+	}
+	NewSendHandler(sender, database, sendEnabled && sender != nil).RegisterRoutes(mux)
 
 	// Cookie-import pairing endpoint. Device pairing uses cookie import.
 	if gmClient != nil {
