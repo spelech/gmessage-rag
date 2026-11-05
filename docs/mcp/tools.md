@@ -1,6 +1,6 @@
-# MCP Tools Reference (`MCP-01` - `MCP-06`)
+# MCP Tools Reference (`MCP-01` - `MCP-07`)
 
-`gmessages-rag` registers 6 core MCP tools to allow agents to interact safely with messages, media, and dossiers.
+`gmessages-rag` registers 6 core MCP tools to allow agents to interact safely with messages, media, and dossiers. When `ENABLE_MCP_SEND_MESSAGE=true` and a paired sender is wired, it also registers the optional `send_message` tool.
 
 ## 1. `list_conversations` (`MCP-01`)
 Lists all ingested conversations with metadata and activity timestamps.
@@ -31,3 +31,12 @@ Searches media attachments using vision OCR text and descriptions.
 Enables tracking, disables tracking, or triggers immediate backfill.
 - **Inputs**: `conversation_id` (string), `action` (`"track"`, `"untrack"`, `"backfill"`, `"refresh_dossier"`).
 - **Output**: Confirmation status and triggered action result.
+
+## 7. `send_message` (`MCP-07`, optional)
+Sends a text message, a base64 media attachment, or an emoji reaction into an existing conversation. This tool is only registered when `ENABLE_MCP_SEND_MESSAGE=true` and a paired `gm.Client` sender is wired; otherwise it is absent and requests fail closed.
+- **Inputs**: `conversation_id` (string, required), plus exactly one of `text`, `media_base64`, or `reaction_message_id`.
+  - Text: `text` (string), optional `reply_to_message_id` (string).
+  - Media: `media_base64` (string), optional `media_file_name`, `media_mime_type`, `caption`, `reply_to_message_id`. Decoded media is capped at 10 MiB.
+  - Reaction: `reaction_message_id` (string), `reaction_emoji` (string), optional `reaction_remove` (bool).
+- **Output**: For text/media, the `tmp_id`, `conversation_id`, `sent_at`, and `status`. For reactions, the persisted `message_id`, `emoji`, and `action` (`added`/`removed`).
+- **Persistence**: Reaction changes are persisted through `db.AddReaction`/`db.RemoveReaction`. Text and media persistence relies on the outgoing event echo, which the connect-on-send path holds the connection open briefly to receive.

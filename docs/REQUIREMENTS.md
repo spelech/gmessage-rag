@@ -58,7 +58,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`DB-06`** | `DB` | [x] Complete | **Inferred Read/Delivery Heuristics** | PR #37, commit `0c88b51` | When enabled (`ENABLE_READ_RECEIPT_HEURISTIC=true`), infers prior outgoing messages up to incoming reply timestamp are delivered and acknowledged for SMS/iPhone contacts lacking native receipts. | `internal/db/receipts_test.go::TestInferDeliveryReceipts` |
 | **`DB-07`** | `DB` | [x] Complete | **Postgres-Backed CI Integration Tests** | Issue #72, PR #73, commit `2a37861` | CI provisions a `pgvector/pgvector:pg17` service with `DATABASE_URL`, so `internal/db`, `internal/pipeline`, and `internal/gm` integration tests execute on every push. Enforces a ≥ 75% coverage floor. | `gate:.github/workflows/ci.yml` |
 | **`GUARD-01`** | `GUARD` | [x] Complete | **Prompt Injection XML Boundary** | Commit `57dad5e` | All raw message texts, transcripts, and OCR text returned by MCP tools are wrapped in `<untrusted_conversation_data>` tags. | `internal/mcpserver/guardrails_test.go::TestWrapUntrustedData_Escaping` |
-| **`GUARD-02`** | `GUARD` | [x] Complete | **Send-Message Restriction** | Commit `57dad5e` | Deliberately omits outbound `send_message` MCP tool unless `ENABLE_MCP_SEND_MESSAGE=true` is explicitly configured. | `internal/mcpserver/tools_test.go::TestSendMessageTool_RegistrationGuard` |
+| **`GUARD-02`** | `GUARD` | [x] Complete | **Send-Message Restriction** | Commit `57dad5e`; Issue #81 | Exposes the outbound `send_message` MCP tool only when `ENABLE_MCP_SEND_MESSAGE=true` and an outbound sender (paired `gm.Client`) is wired; otherwise the tool is not registered and calls fail closed. | `internal/mcpserver/tools_test.go::TestSendMessageTool_RegistrationGuard`, `internal/mcpserver/send_test.go::TestSendMessageTool_RegistrationGating` |
 | **`PIPE-01`** | `PIPE` | [ ] Not Started | **Vision OCR Sidecar** | — | Extracts verbatim OCR text and a 1-2 sentence visual description for image attachments via an OpenAI-compatible vision model. **Not implemented:** no vision client exists; `VISION_MODEL`/`LLM_BASE_URL` are unused. | None |
 | **`PIPE-02`** | `PIPE` | [x] Complete | **Per-Conversation Idle Debouncer** | PR #6, #12; Issue #81 | Maintains thread-safe timers per tracked conversation; triggers a pipeline run after 30 minutes of silence. The daemon's `OnFlush` callback runs the full pipeline: Vision OCR, 2-hour sessionization, and Living Dossier reconciliation. | `internal/pipeline/debouncer_test.go::TestDebouncer_ResetOnNewMessage` |
 | **`PIPE-03`** | `PIPE` | [x] Complete | **LLM State Reconciliation Engine** | Issue #78 | Reconciles new sessions against the current dossier: anchors relative dates, applies chronological overrides, transitions past events, and exports Markdown. `internal/pipeline/dossier.go` calls `DOSSIER_MODEL` through an injectable OpenAI-compatible client, persists via `db.UpsertContactDossier`, and spools `<contact>.md` under `DOSSIER_DIR`. | `internal/pipeline/dossier_test.go::TestDossierReconciliation_DateAnchoring` |
@@ -92,6 +92,7 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 | **`MCP-04`** | `MCP` | [x] Complete | **`get_messages_around_time` Tool** | Issue #79 | Pulls verbatim message context and media OCR annotations within a time window. Handler wraps `db.GetMessagesAroundTime` and `db.GetMediaAttachmentsForMessage`. | `internal/mcpserver/tools_test.go::TestTools_GetMessagesAroundTime_RealDB` |
 | **`MCP-05`** | `MCP` | [x] Complete | **`search_shared_media` Tool** | Issue #79 | Searches media attachments by OCR text and visual descriptions. Handler wraps `db.SearchMediaAttachments`. | `internal/mcpserver/tools_test.go::TestTools_SearchSharedMedia_RealDB` |
 | **`MCP-06`** | `MCP` | [x] Complete | **`manage_tracked_contact` Tool** | Issue #79 | Enables or disables thread tracking, resets backfill state, or forces a dossier refresh. Handler wraps `db.SetConversationTracked`, `db.ResetConversationBackfill`, and `db.GetContactDossier`. | `internal/mcpserver/tools_test.go::TestTools_ManageTrackedContact_RealDB` |
+| **`MCP-07`** | `MCP` | [x] Complete | **`send_message` Outbound Tool** | Issue #81 | Sends text, base64 media, and emoji reactions (add/remove) into an existing conversation through a wired `gm.Client`. Connect-on-send reuses an open connection or opens a short-lived one; reactions persist through `db.AddReaction`/`db.RemoveReaction`. | `internal/mcpserver/send_test.go::TestSendMessage_ReactionPersistence_RealDB`, `internal/gm/send_test.go::TestSendMedia_Emulator` |
 | **`TRANS-01`** | `TRANS` | [x] Complete | **Health Check Probe** | Commit `57dad5e` / PR #41, commit `151d981` | Exposes `/health` and `/healthz` returning HTTP 200 with database connectivity status and version JSON. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/obs/health_test.go::TestHealthHandler_Healthy` |
 | **`TRANS-02`** | `TRANS` | [x] Complete | **Streamable MCP & SSE Endpoints** | Commit `57dad5e` | Exposes Streamable HTTP `/mcp` and Server-Sent Events `/sse` on port 8090. | `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration`, `internal/mcpserver/server_test.go::TestProtocol_20260728_PingAndHandshake` |
 | **`TRANS-03`** | `TRANS` | [x] Complete | **Briefing API & Outbound Webhook** | Issue #80 | Exposes `/api/v1/briefing` and `/api/v1/briefing/today` returning per tracked contact what changed since a caller-supplied `since` (RFC3339) or a default 24h lookback, sourced from `contact_dossier_history` with dossier-derived Markdown wrapped in untrusted-data boundaries. Dispatches a signed POST to `WEBHOOK_URL` (optional bearer/HMAC auth) with bounded backoff when the dossier reconciler updates a dossier. | `internal/web/briefing_test.go::TestBriefingAPI_ChangedSince`, `internal/notify/webhook_test.go::TestWebhookDispatch_RetriesOnFailure`, `cmd/gmessages-rag/main_test.go::TestBuildServeMux_RouteRegistration` |
@@ -184,9 +185,9 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 
 ### `GUARD-02`: Send-Message Restriction
 - **Category**: `GUARD` (`FailClosedGuardrail`)
-- **Status**: `[x] Complete` (Commit `57dad5e`)
-- **Description**: Deliberately omits outbound `send_message` MCP tool unless `ENABLE_MCP_SEND_MESSAGE=true` is explicitly configured.
-- **Verification**: Unit tests in `internal/mcpserver/tools_test.go` verifying tool registration exclusion when flag is false.
+- **Status**: `[x] Complete` (Commit `57dad5e`; Issue #81)
+- **Description**: Exposes the outbound `send_message` MCP tool only when `ENABLE_MCP_SEND_MESSAGE=true` and an outbound sender (paired `gm.Client`) is wired into the MCP server. When either condition is unmet, the tool is not registered and the handler fails closed.
+- **Verification**: Unit tests in `internal/mcpserver/tools_test.go` and `internal/mcpserver/send_test.go` verifying registration exclusion without the flag or sender, and the handler-level fail-closed guard.
 
 ### `PIPE-01`: Vision OCR Sidecar
 - **Category**: `PIPE` (`PositiveFeature`)
@@ -406,6 +407,12 @@ Requirement identifiers use `<CATEGORY>-<NN>` format (`AUTH-01`, `DB-01`, `GUARD
 - **Description**: Enables/disables thread tracking, resets historical backfill state, or forces an immediate dossier re-read. The handler wraps `SetConversationTracked`, `ResetConversationBackfill`, and `GetContactDossier`.
 - **Verification**: Integration test in `internal/mcpserver/tools_test.go::TestTools_ManageTrackedContact_RealDB` asserting database state deltas.
 
+### `MCP-07`: `send_message` Outbound Tool
+- **Category**: `MCP` (`PositiveFeature`)
+- **Status**: `[x] Complete` (Issue #81)
+- **Description**: Sends text, base64-encoded media, and emoji reactions (add/remove) into an existing conversation through a wired `gm.Client`. The connect-on-send strategy reuses an open long-poll connection or opens a short-lived one and holds it briefly so the outgoing echo is persisted. Reaction changes persist explicitly through `db.AddReaction`/`db.RemoveReaction` because message upserts are idempotent (`ON CONFLICT DO NOTHING`).
+- **Verification**: Handler tests in `internal/mcpserver/send_test.go` (registration gating, text/media/reaction dispatch, real-Postgres reaction persistence) and emulator-backed send tests in `internal/gm/send_test.go`.
+
 ### `TRANS-01`: Health Check Probe
 - **Category**: `TRANS` (`PositiveFeature`)
 - **Status**: `[x] Complete` (Commit `57dad5e` / PR #41, commit `151d981`)
@@ -456,7 +463,7 @@ row must now point at a test that exists; CI enforces this via `scripts/check_tr
 | `SEC-01` | Complete | Partial | Decrypt/hash/store tested; no ingestion caller |
 | `HARN-01` | Complete | Complete | Mock server `Settings()`/`Transport()` consumed by real `gm.Client`; disturbance proof added (#82) |
 | `AUTH-04` | Complete | Partial | Success path needs live smoke; proof path did not exist |
-| `MCP-01`..`MCP-06` | Partial | Complete | Handlers rewritten as DB-backed wrappers over `internal/db`; real-Postgres proof tests added (Issue #79) |
+| `MCP-01`..`MCP-07` | Partial | Complete | Handlers rewritten as DB-backed wrappers over `internal/db`; outbound `send_message` wired and proof tests added (Issues #79, #81) |
 | `TRANS-03` | Complete | Not Started | No briefing route and no webhook dispatch |
 | `UI-02`,`UI-05` | Complete | Partial | Panels work; embedded MCP calls resolve to stubs |
 | `UI-01`,`DAEMON-01`,`TRANS-01`,`TRANS-02` | Complete | Complete | Status correct; proof paths corrected to existing tests |

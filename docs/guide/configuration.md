@@ -52,7 +52,7 @@ backfill pass at startup and then a forward drain per window.
 
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `ENABLE_MCP_SEND_MESSAGE` | bool | `false` | Fail-closed guard: enables outbound `send_message` tool |
+| `ENABLE_MCP_SEND_MESSAGE` | bool | `false` | Fail-closed guard: registers the outbound `send_message` tool only when `true` and a paired sender is wired (`MCP-07`) |
 | `NOTIFY_ON_PHONE_DISCONNECT` | bool | `false` | Sends push alerts on phone disconnect |
 | `NOTIFY_PHONE_DISCONNECT_GRACE_MINUTES` | int | `15` | Debounce window before alerting on disconnect |
 
