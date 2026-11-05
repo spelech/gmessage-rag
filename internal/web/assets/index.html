@@ -269,6 +269,7 @@
     <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
     <button class="tab-btn" onclick="switchTab('testbench')">Diagnostic Test Bench</button>
     <button class="tab-btn" onclick="switchTab('tuner')">Runtime Tuner</button>
+    <button class="tab-btn" id="compose-tab-btn" onclick="switchTab('compose')" style="display: none;">Compose &amp; Send</button>
   </nav>
 
   <!-- Tab 1: Overview -->
@@ -338,6 +339,7 @@
           <option value="get_messages_around_time">get_messages_around_time</option>
           <option value="search_shared_media">search_shared_media</option>
           <option value="manage_tracked_contact">manage_tracked_contact</option>
+          <option value="send_message" id="mcp-send-option" style="display: none;">send_message</option>
         </select>
       </div>
       <div class="form-group">
@@ -451,6 +453,68 @@
     </div>
   </div>
 
+  <!-- Tab 4: Compose & Send -->
+  <div id="tab-compose" class="tab-content">
+    <div class="card" style="max-width: 680px;">
+      <div class="card-title">Compose &amp; Send</div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">
+        Send text, reactions, or media directly through the daemon. Text and reactions use JSON.
+        Media uses a streaming multipart upload, so it does not pass through base64 or JSON-RPC.
+        The MCP <code>send_message</code> tool remains available for base64 payloads when enabled.
+      </p>
+
+      <div id="compose-alert" class="alert-banner" style="display: none;"></div>
+
+      <div class="form-group">
+        <label class="form-label" for="compose-conversation-id">Conversation ID</label>
+        <input type="text" id="compose-conversation-id" class="form-control" placeholder="Conversation ID" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="compose-reply-to">Reply To Message ID (optional)</label>
+        <input type="text" id="compose-reply-to" class="form-control" placeholder="Message ID to reply to" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="compose-text">Text Message</label>
+        <textarea id="compose-text" class="form-control" rows="4" placeholder="Type a message..."></textarea>
+      </div>
+      <button type="button" class="btn btn-primary" onclick="sendTextMessage()">Send Text</button>
+
+      <div class="section-title" style="font-size: 15px;">Reaction</div>
+      <div class="form-group">
+        <label class="form-label" for="compose-reaction-message">Message ID to React To</label>
+        <input type="text" id="compose-reaction-message" class="form-control" placeholder="Message ID" />
+      </div>
+      <div style="display: grid; grid-template-columns: 2fr auto; gap: 12px; align-items: end;" class="form-group">
+        <div>
+          <label class="form-label" for="compose-reaction-emoji">Emoji</label>
+          <input type="text" id="compose-reaction-emoji" class="form-control" placeholder="👍" maxlength="8" />
+        </div>
+        <label style="display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px;">
+          <input type="checkbox" id="compose-reaction-remove" /> Remove
+        </label>
+      </div>
+      <button type="button" class="btn btn-primary" onclick="sendReaction()">Send Reaction</button>
+
+      <div class="section-title" style="font-size: 15px;">Media Upload (streaming)</div>
+      <div class="form-group">
+        <label class="form-label" for="compose-media-file">File</label>
+        <input type="file" id="compose-media-file" class="form-control" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="compose-media-caption">Caption (optional)</label>
+        <input type="text" id="compose-media-caption" class="form-control" placeholder="Caption" />
+      </div>
+      <button type="button" class="btn btn-primary" onclick="sendMediaMessage()">Send Media</button>
+
+      <div class="form-group" style="margin-top: 16px;">
+        <label class="form-label">Send Output</label>
+        <div id="compose-output" class="output-box">// Send results will appear here...</div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // Tab switching logic
     function switchTab(tabId) {
@@ -475,7 +539,8 @@
       'search_conversation_history': JSON.stringify({ query: 'vacation plans', limit: 5 }, null, 2),
       'get_messages_around_time': JSON.stringify({ conversation_id: 'conv-123', timestamp: new Date().toISOString(), window_minutes: 30 }, null, 2),
       'search_shared_media': JSON.stringify({ query: 'receipt', limit: 5 }, null, 2),
-      'manage_tracked_contact': JSON.stringify({ conversation_id: 'conv-123', action: 'track' }, null, 2)
+      'manage_tracked_contact': JSON.stringify({ conversation_id: 'conv-123', action: 'track' }, null, 2),
+      'send_message': JSON.stringify({ conversation_id: 'conv-123', text: 'Hello from the test bench' }, null, 2)
     };
 
     function onMCPToolChange() {
@@ -678,6 +743,107 @@
       }
     }
 
+    // Compose & Send functions
+    function showComposeAlert(message, isError) {
+      const el = document.getElementById('compose-alert');
+      if (!el) return;
+      el.className = 'alert-banner ' + (isError ? 'alert-danger' : 'alert-success');
+      el.textContent = message;
+      el.style.display = 'block';
+    }
+
+    async function sendTextMessage() {
+      const conversationId = document.getElementById('compose-conversation-id').value.trim();
+      const text = document.getElementById('compose-text').value.trim();
+      const replyTo = document.getElementById('compose-reply-to').value.trim();
+      const output = document.getElementById('compose-output');
+      if (!conversationId || !text) {
+        showComposeAlert('Conversation ID and text are required.', true);
+        return;
+      }
+      output.textContent = 'Sending text...';
+      try {
+        const res = await fetch('/api/v1/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversation_id: conversationId, text: text, reply_to_message_id: replyTo })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Send failed');
+        output.textContent = JSON.stringify(data, null, 2);
+        showComposeAlert('Text sent.', false);
+        document.getElementById('compose-text').value = '';
+      } catch (err) {
+        output.textContent = 'Error: ' + err.message;
+        showComposeAlert(err.message, true);
+      }
+    }
+
+    async function sendReaction() {
+      const conversationId = document.getElementById('compose-conversation-id').value.trim();
+      const messageId = document.getElementById('compose-reaction-message').value.trim();
+      const emoji = document.getElementById('compose-reaction-emoji').value.trim();
+      const remove = document.getElementById('compose-reaction-remove').checked;
+      const output = document.getElementById('compose-output');
+      if (!conversationId || !messageId || (!emoji && !remove)) {
+        showComposeAlert('Conversation ID, message ID, and emoji (unless removing) are required.', true);
+        return;
+      }
+      output.textContent = 'Sending reaction...';
+      try {
+        const res = await fetch('/api/v1/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            reaction_message_id: messageId,
+            reaction_emoji: emoji,
+            reaction_remove: remove
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Reaction failed');
+        output.textContent = JSON.stringify(data, null, 2);
+        showComposeAlert(remove ? 'Reaction removed.' : 'Reaction added.', false);
+      } catch (err) {
+        output.textContent = 'Error: ' + err.message;
+        showComposeAlert(err.message, true);
+      }
+    }
+
+    async function sendMediaMessage() {
+      const conversationId = document.getElementById('compose-conversation-id').value.trim();
+      const fileInput = document.getElementById('compose-media-file');
+      const caption = document.getElementById('compose-media-caption').value.trim();
+      const replyTo = document.getElementById('compose-reply-to').value.trim();
+      const output = document.getElementById('compose-output');
+      if (!conversationId) {
+        showComposeAlert('Conversation ID is required.', true);
+        return;
+      }
+      if (!fileInput.files || fileInput.files.length === 0) {
+        showComposeAlert('Select a file to upload.', true);
+        return;
+      }
+      output.textContent = 'Uploading media (streaming)...';
+      const form = new FormData();
+      form.append('conversation_id', conversationId);
+      form.append('file', fileInput.files[0]);
+      if (caption) form.append('caption', caption);
+      if (replyTo) form.append('reply_to_message_id', replyTo);
+      try {
+        const res = await fetch('/api/v1/send/media', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Media send failed');
+        output.textContent = JSON.stringify(data, null, 2);
+        showComposeAlert('Media sent.', false);
+        fileInput.value = '';
+      } catch (err) {
+        output.textContent = 'Error: ' + err.message;
+        showComposeAlert(err.message, true);
+      }
+    }
+
     // Overview functions
     async function fetchStatus() {
       try {
@@ -703,6 +869,19 @@
         }
 
         document.getElementById('unindexed-count').textContent = data.unindexed_messages ?? 0;
+
+        // Align the UI with the daemon's actual outbound-send capability.
+        const sendEnabled = data.send_enabled === true;
+        const composeTab = document.getElementById('compose-tab-btn');
+        if (composeTab) composeTab.style.display = sendEnabled ? '' : 'none';
+        const sendOption = document.getElementById('mcp-send-option');
+        if (sendOption) sendOption.style.display = sendEnabled ? '' : 'none';
+        if (!sendEnabled) {
+          const composeContent = document.getElementById('tab-compose');
+          if (composeContent && composeContent.classList.contains('active')) {
+            switchTab('overview');
+          }
+        }
       } catch (err) {
         console.error('Error loading status:', err);
       }

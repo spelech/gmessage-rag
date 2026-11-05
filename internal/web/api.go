@@ -16,6 +16,7 @@ type StatusResponse struct {
 	Status            string `json:"status"`
 	DBConnected       bool   `json:"db_connected"`
 	GMConnected       bool   `json:"gm_connected"`
+	SendEnabled       bool   `json:"send_enabled"`
 	UnindexedMessages int64  `json:"unindexed_messages"`
 }
 
@@ -27,9 +28,10 @@ type TrackContactRequest struct {
 
 // APIHandler handles REST API calls under /api/v1/*.
 type APIHandler struct {
-	database *db.DB
-	gmClient *gm.Client
-	tuner    *config.RuntimeTuner
+	database    *db.DB
+	gmClient    *gm.Client
+	tuner       *config.RuntimeTuner
+	sendEnabled bool
 }
 
 // NewAPI is an alias for NewAPIHandler.
@@ -44,10 +46,17 @@ func NewAPIHandler(database *db.DB, gmClient *gm.Client) *APIHandler {
 
 // NewAPIHandlerWithTuner constructs a new APIHandler with an optional RuntimeTuner.
 func NewAPIHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner) *APIHandler {
+	return NewAPIHandlerWithSend(database, gmClient, tuner, false)
+}
+
+// NewAPIHandlerWithSend constructs a new APIHandler and reports whether
+// outbound send is available in the status payload.
+func NewAPIHandlerWithSend(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner, sendEnabled bool) *APIHandler {
 	return &APIHandler{
-		database: database,
-		gmClient: gmClient,
-		tuner:    tuner,
+		database:    database,
+		gmClient:    gmClient,
+		tuner:       tuner,
+		sendEnabled: sendEnabled,
 	}
 }
 
@@ -88,6 +97,7 @@ func (h *APIHandler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Status:            status,
 		DBConnected:       dbConnected,
 		GMConnected:       gmConnected,
+		SendEnabled:       h.sendEnabled,
 		UnindexedMessages: unindexedMessages,
 	}
 

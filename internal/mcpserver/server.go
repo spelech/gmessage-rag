@@ -35,6 +35,7 @@ type Server struct {
 	serverInfo  Implementation
 	tools       map[string]registeredTool
 	sender      MessageSender
+	sendEnabled bool
 	accessToken string
 }
 
@@ -47,6 +48,10 @@ func NewServer(opts ServerOptions) *Server {
 		opts.Version = "1.0.0"
 	}
 
+	// send_message is only available when explicitly enabled and a transport
+	// is wired. Anything else fails closed.
+	enableSend := opts.EnableSendMessage && opts.Sender != nil
+
 	s := &Server{
 		serverInfo: Implementation{
 			Name:    opts.Name,
@@ -54,12 +59,9 @@ func NewServer(opts ServerOptions) *Server {
 		},
 		tools:       make(map[string]registeredTool),
 		sender:      opts.Sender,
+		sendEnabled: enableSend,
 		accessToken: opts.AccessToken,
 	}
-
-	// send_message is only available when explicitly enabled and a transport
-	// is wired. Anything else fails closed.
-	enableSend := opts.EnableSendMessage && opts.Sender != nil
 
 	// Register core tools backed by the database layer
 	for _, tool := range BuiltinToolDefinitions(enableSend) {
@@ -67,6 +69,17 @@ func NewServer(opts ServerOptions) *Server {
 	}
 
 	return s
+}
+
+// SendEnabled reports whether the send_message tool is available. It is true
+// only when the feature flag is set and an outbound transport is wired.
+func (s *Server) SendEnabled() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sendEnabled && s.sender != nil
 }
 
 // RegisterTool registers or overrides a tool and its handler.
