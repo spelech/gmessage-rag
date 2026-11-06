@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pgvector/pgvector-go"
@@ -17,6 +18,9 @@ import (
 type SessionStore interface {
 	GetUnassignedMessages(ctx context.Context, conversationID string) ([]db.Message, error)
 	UpsertSession(ctx context.Context, session *db.ConversationSession, messageIDs []string) (*db.ConversationSession, error)
+	ListSessionsNeedingAnalysis(ctx context.Context, conversationID string, limit int) ([]db.ConversationSession, error)
+	GetSessionMessages(ctx context.Context, sessionID int64) ([]db.Message, error)
+	UpdateSessionAnalysis(ctx context.Context, sessionID int64, summary string, embedding *pgvector.HalfVector) error
 }
 
 // SessionizerConfig configures the Sessionizer.
@@ -26,6 +30,9 @@ type SessionizerConfig struct {
 	SessionGapHours int
 	Location        *time.Location
 	Logger          zerolog.Logger
+	// Workers is the number of sessions re-summarized concurrently. Zero or
+	// negative defaults to 4.
+	Workers int
 }
 
 // Sessionizer chunks raw conversation messages into coherent 2-hour contiguous sessions (PIPE-06 / DB-03),
@@ -36,6 +43,7 @@ type Sessionizer struct {
 	sessionGap time.Duration
 	location   *time.Location
 	logger     zerolog.Logger
+	workers    int
 }
 
 // NewSessionizer initializes a new Sessionizer.
@@ -48,6 +56,10 @@ func NewSessionizer(cfg SessionizerConfig) *Sessionizer {
 	if loc == nil {
 		loc = time.UTC
 	}
+	workers := cfg.Workers
+	if workers <= 0 {
+		workers = 4
+	}
 
 	return &Sessionizer{
 		store:      cfg.Store,
@@ -55,6 +67,7 @@ func NewSessionizer(cfg SessionizerConfig) *Sessionizer {
 		sessionGap: time.Duration(gapHours) * time.Hour,
 		location:   loc,
 		logger:     cfg.Logger,
+		workers:    workers,
 	}
 }
 
@@ -241,4 +254,136 @@ func (s *Sessionizer) ProcessUnassignedMessages(ctx context.Context, conversatio
 	}
 
 	return sessions, nil
+}
+
+// ResummarizeReport summarizes a re-summarization pass.
+type ResummarizeReport struct {
+	Requested int      `json:"requested"`
+	Updated   int      `json:"updated"`
+	Skipped   int      `json:"skipped"`
+	Failed    int      `json:"failed"`
+	Errors    []string `json:"errors,omitempty"`
+}
+
+// resummarizeOutcome classifies the result of one session attempt.
+type resummarizeOutcome int
+
+const (
+	outcomeUpdated resummarizeOutcome = iota
+	outcomeSkipped
+	outcomeFailed
+)
+
+// resummarizeOne regenerates one session's summary and embedding in place.
+func (s *Sessionizer) resummarizeOne(ctx context.Context, sess db.ConversationSession) (resummarizeOutcome, error) {
+	msgs, err := s.store.GetSessionMessages(ctx, sess.ID)
+	if err != nil {
+		return outcomeFailed, fmt.Errorf("load messages: %w", err)
+	}
+	if len(msgs) == 0 {
+		return outcomeSkipped, nil
+	}
+
+	transcript := s.FormatTranscript(msgs)
+	title, sumText, err := s.llmClient.GenerateSummary(ctx, transcript)
+	if err != nil {
+		return outcomeFailed, fmt.Errorf("summary: %w", err)
+	}
+
+	combined := fmt.Sprintf("%s: %s", title, sumText)
+	var hv *pgvector.HalfVector
+	if vec, embedErr := s.llmClient.GenerateEmbedding(ctx, combined+"\n\n"+transcript); embedErr != nil {
+		s.logger.Warn().Err(embedErr).Int64("session_id", sess.ID).Msg("Embedding generation failed during resummarize; storing summary only")
+	} else if len(vec) > 0 {
+		v := pgvector.NewHalfVector(vec)
+		hv = &v
+	}
+
+	if err := s.store.UpdateSessionAnalysis(ctx, sess.ID, combined, hv); err != nil {
+		return outcomeFailed, fmt.Errorf("persist: %w", err)
+	}
+	return outcomeUpdated, nil
+}
+
+// ResummarizeMissing regenerates summaries and embeddings for existing sessions
+// that lack them. It keeps each session's original boundaries and message
+// linkage; only the summary and embedding are replaced. When conversationID is
+// empty, all conversations are processed. A limit of zero defaults to 1000.
+// Sessions are processed by a bounded worker pool (SessionizerConfig.Workers).
+func (s *Sessionizer) ResummarizeMissing(ctx context.Context, conversationID string, limit int) (*ResummarizeReport, error) {
+	if s.store == nil {
+		return nil, errors.New("store cannot be nil")
+	}
+	if s.llmClient == nil {
+		return nil, errors.New("llm client cannot be nil")
+	}
+
+	sessions, err := s.store.ListSessionsNeedingAnalysis(ctx, conversationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions needing analysis: %w", err)
+	}
+
+	report := &ResummarizeReport{Requested: len(sessions)}
+	if len(sessions) == 0 {
+		return report, nil
+	}
+
+	workers := s.workers
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(sessions) {
+		workers = len(sessions)
+	}
+
+	var (
+		mu sync.Mutex
+		wg sync.WaitGroup
+	)
+	jobs := make(chan db.ConversationSession)
+	worker := func() {
+		defer wg.Done()
+		for sess := range jobs {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			outcome, runErr := s.resummarizeOne(ctx, sess)
+			mu.Lock()
+			switch outcome {
+			case outcomeUpdated:
+				report.Updated++
+			case outcomeSkipped:
+				report.Skipped++
+			case outcomeFailed:
+				report.Failed++
+				if runErr != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("session %d: %v", sess.ID, runErr))
+				}
+			}
+			mu.Unlock()
+		}
+	}
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go worker()
+	}
+
+dispatch:
+	for _, sess := range sessions {
+		select {
+		case <-ctx.Done():
+			break dispatch
+		case jobs <- sess:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		return report, err
+	}
+	return report, nil
 }
