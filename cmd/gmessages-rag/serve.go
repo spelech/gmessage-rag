@@ -46,11 +46,17 @@ type DaemonServer struct {
 
 // BuildServeMux constructs the root http.ServeMux with all routes registered.
 func BuildServeMux(database *db.DB, gmClient *gm.Client, mcpSrv *mcpserver.Server, metrics *obs.Metrics) *http.ServeMux {
-	return BuildServeMuxWithTuner(database, gmClient, mcpSrv, metrics, nil)
+	return BuildServeMuxWithModels(database, gmClient, mcpSrv, metrics, nil, nil, nil)
 }
 
 // BuildServeMuxWithTuner constructs the root http.ServeMux with optional RuntimeTuner wired in.
 func BuildServeMuxWithTuner(database *db.DB, gmClient *gm.Client, mcpSrv *mcpserver.Server, metrics *obs.Metrics, tuner *config.RuntimeTuner) *http.ServeMux {
+	return BuildServeMuxWithModels(database, gmClient, mcpSrv, metrics, tuner, nil, nil)
+}
+
+// BuildServeMuxWithModels constructs the root http.ServeMux with an optional
+// RuntimeTuner, model registry, and gateway model catalog wired in.
+func BuildServeMuxWithModels(database *db.DB, gmClient *gm.Client, mcpSrv *mcpserver.Server, metrics *obs.Metrics, tuner *config.RuntimeTuner, models *config.ModelRegistry, catalog web.ModelCatalog) *http.ServeMux {
 	rootMux := http.NewServeMux()
 
 	// 1. Prometheus metrics: /metrics
@@ -77,7 +83,7 @@ func BuildServeMuxWithTuner(database *db.DB, gmClient *gm.Client, mcpSrv *mcpser
 	// The dashboard mirrors the MCP server's send capability so the UI only
 	// exposes compose/send when outbound messaging is actually wired.
 	sendEnabled := mcpSrv != nil && mcpSrv.SendEnabled()
-	dashHandler := web.NewDashboardHandlerWithSend(database, gmClient, tuner, sendEnabled)
+	dashHandler := web.NewDashboardHandlerWithModels(database, gmClient, tuner, sendEnabled, models, catalog)
 	rootMux.Handle("/", dashHandler)
 
 	return rootMux
@@ -427,6 +433,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
+	// 3b. Load durable model selection and seed the hot-reloadable registry.
+	// Stored settings override environment defaults; the pipeline clients read
+	// the registry on every request, so changes apply without a restart.
+	baseModels := config.ModelSettings{
+		SummaryModel:   cfg.SummaryModel,
+		DossierModel:   cfg.DossierModel,
+		VisionModel:    cfg.VisionModel,
+		EmbeddingModel: cfg.EmbeddingModel,
+	}
+	modelRegistry := config.NewModelRegistry(baseModels)
+	if stored, err := database.GetSettings(ctx); err != nil {
+		logger.Warn().Err(err).Msg("Could not load persisted model settings; using environment defaults")
+	} else {
+		_ = modelRegistry.Set(config.ModelSettingsFromMap(baseModels, stored))
+	}
+
 	// 4. Initialize notification and watchdog monitoring
 	notifyClient := notify.NewClient(notify.ClientConfig{
 		AppriseURL:     cfg.AppriseURL,
@@ -454,10 +476,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// 5. Initialize Vision Service, LLM Client, Sessionizer & Debouncer
 	visionClient := pipeline.NewOpenAIVisionClient(pipeline.OpenAIVisionClientConfig{
-		BaseURL: cfg.LLMBaseURL,
-		APIKey:  cfg.LLMAPIKey,
-		Model:   cfg.VisionModel,
-		Logger:  logger.With().Str("component", "vision").Logger(),
+		BaseURL:   cfg.LLMBaseURL,
+		APIKey:    cfg.LLMAPIKey,
+		Model:     cfg.VisionModel,
+		ModelFunc: modelRegistry.VisionModel,
+		Logger:    logger.With().Str("component", "vision").Logger(),
 	})
 	visionService := &pipeline.VisionService{
 		Client:   visionClient,
@@ -470,9 +493,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		LLMBaseURL:          cfg.LLMBaseURL,
 		LLMAPIKey:           cfg.LLMAPIKey,
 		SummaryModel:        cfg.SummaryModel,
+		SummaryModelFunc:    modelRegistry.SummaryModel,
 		EmbeddingBaseURL:    cfg.EmbeddingBaseURL,
 		EmbeddingAPIKey:     cfg.EmbeddingAPIKey,
 		EmbeddingModel:      cfg.EmbeddingModel,
+		EmbeddingModelFunc:  modelRegistry.EmbeddingModel,
 		EmbeddingDimensions: cfg.EmbeddingDimensions,
 	})
 
@@ -485,10 +510,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 
 	dossierModel := pipeline.NewOpenAIDossierModel(pipeline.DossierModelConfig{
-		BaseURL: cfg.LLMBaseURL,
-		APIKey:  cfg.LLMAPIKey,
-		Model:   cfg.DossierModel,
-		Logger:  logger.With().Str("component", "dossier_model").Logger(),
+		BaseURL:   cfg.LLMBaseURL,
+		APIKey:    cfg.LLMAPIKey,
+		Model:     cfg.DossierModel,
+		ModelFunc: modelRegistry.DossierModel,
+		Logger:    logger.With().Str("component", "dossier_model").Logger(),
 	})
 
 	// gmClient is assigned after the debouncer is created; the contact source closes over it so
@@ -696,7 +722,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 		BackfillBatchSize:    cfg.MaxBackfillMessages,
 	})
 
-	rootMux := BuildServeMuxWithTuner(database, gmClient, mcpServer, metrics, tuner)
+	// Gateway model catalog powers the dashboard model picker.
+	modelCatalog := func(catalogCtx context.Context) ([]web.ModelOption, error) {
+		available, err := pipeline.ListAvailableModels(catalogCtx, cfg.LLMBaseURL, cfg.LLMAPIKey)
+		if err != nil {
+			return nil, err
+		}
+		options := make([]web.ModelOption, 0, len(available))
+		for _, m := range available {
+			options = append(options, web.ModelOption{
+				ID:             m.ID,
+				SupportsVision: m.SupportsVision,
+				Mode:           m.Mode,
+				Provider:       m.Provider,
+			})
+		}
+		return options, nil
+	}
+
+	rootMux := BuildServeMuxWithModels(database, gmClient, mcpServer, metrics, tuner, modelRegistry, modelCatalog)
 
 	// 8. Start background batch ETL pipeline for any tracked contacts
 	if cfg.PauseIngestion {

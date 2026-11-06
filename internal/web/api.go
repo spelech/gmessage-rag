@@ -32,6 +32,8 @@ type APIHandler struct {
 	gmClient    *gm.Client
 	tuner       *config.RuntimeTuner
 	sendEnabled bool
+	models      *config.ModelRegistry
+	catalog     ModelCatalog
 }
 
 // NewAPI is an alias for NewAPIHandler.
@@ -52,11 +54,19 @@ func NewAPIHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *config.
 // NewAPIHandlerWithSend constructs a new APIHandler and reports whether
 // outbound send is available in the status payload.
 func NewAPIHandlerWithSend(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner, sendEnabled bool) *APIHandler {
+	return NewAPIHandlerWithModels(database, gmClient, tuner, sendEnabled, nil, nil)
+}
+
+// NewAPIHandlerWithModels constructs a new APIHandler with an optional model
+// registry and gateway model catalog, enabling model selection endpoints.
+func NewAPIHandlerWithModels(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner, sendEnabled bool, models *config.ModelRegistry, catalog ModelCatalog) *APIHandler {
 	return &APIHandler{
 		database:    database,
 		gmClient:    gmClient,
 		tuner:       tuner,
 		sendEnabled: sendEnabled,
+		models:      models,
+		catalog:     catalog,
 	}
 }
 
