@@ -13,6 +13,12 @@ const dockerNetworkLLMHost = "litellm:4000"
 // hostLLMFallback is the LiteLLM address published on the development host.
 const hostLLMFallback = "http://localhost:8448"
 
+// dbNetworkHost is the PostgreSQL host name used inside the Docker network.
+const dbNetworkHost = "db:5432"
+
+// dbHostFallback is the PostgreSQL address published on the development host.
+const dbHostFallback = "127.0.0.1:5432"
+
 // resolveLLMEndpoint returns a LiteLLM base URL reachable from the current
 // process. The daemon and the containerized CLI reach LiteLLM on the Docker
 // network (http://litellm:4000). A CLI run directly on the host cannot resolve
@@ -20,6 +26,25 @@ const hostLLMFallback = "http://localhost:8448"
 // when it is already reachable or is not the Docker-network host.
 func resolveLLMEndpoint(configured string) string {
 	return selectLLMEndpoint(configured, tcpReachable)
+}
+
+// resolveDatabaseURL keeps the Docker-network database host when it is
+// reachable, and falls back to the published host port otherwise.
+func resolveDatabaseURL(configured string) string {
+	return selectDatabaseURL(configured, tcpReachable)
+}
+
+// selectDatabaseURL holds the database-endpoint choice logic, taking the
+// reachability probe as a parameter for isolated testing.
+func selectDatabaseURL(configured string, reachable func(string) bool) string {
+	trimmed := strings.TrimSpace(configured)
+	if trimmed == "" || !strings.Contains(trimmed, "@"+dbNetworkHost) {
+		return configured
+	}
+	if reachable("http://" + dbNetworkHost) {
+		return configured
+	}
+	return strings.Replace(trimmed, "@"+dbNetworkHost, "@"+dbHostFallback, 1)
 }
 
 // selectLLMEndpoint holds the endpoint-choice logic. It takes the reachability

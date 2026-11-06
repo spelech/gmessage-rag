@@ -81,3 +81,49 @@ func TestTCPReachable(t *testing.T) {
 		t.Fatalf("expected malformed url to be unreachable")
 	}
 }
+
+func TestSelectDatabaseURL(t *testing.T) {
+	reachable := true
+	probe := func(string) bool { return reachable }
+
+	tests := []struct {
+		name       string
+		configured string
+		reachable  bool
+		want       string
+	}{
+		{
+			name:       "non docker host is returned unchanged",
+			configured: "postgres://u:p@192.168.1.5:5432/gmessages",
+			reachable:  false,
+			want:       "postgres://u:p@192.168.1.5:5432/gmessages",
+		},
+		{
+			name:       "empty url is returned unchanged",
+			configured: "",
+			reachable:  false,
+			want:       "",
+		},
+		{
+			name:       "docker db host kept when reachable",
+			configured: "postgres://u:p@db:5432/gmessages?sslmode=disable",
+			reachable:  true,
+			want:       "postgres://u:p@db:5432/gmessages?sslmode=disable",
+		},
+		{
+			name:       "docker db host falls back to host port when unreachable",
+			configured: "postgres://u:p@db:5432/gmessages?sslmode=disable",
+			reachable:  false,
+			want:       "postgres://u:p@127.0.0.1:5432/gmessages?sslmode=disable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reachable = tt.reachable
+			if got := selectDatabaseURL(tt.configured, probe); got != tt.want {
+				t.Fatalf("selectDatabaseURL(%q, reachable=%v) = %q, want %q", tt.configured, tt.reachable, got, tt.want)
+			}
+		})
+	}
+}

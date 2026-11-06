@@ -310,3 +310,63 @@ ORDER BY started_at ASC;
 
 	return sessions, nil
 }
+
+// ListSessionsNeedingAnalysis returns sessions missing a summary or an embedding.
+// When conversationID is empty, all conversations are considered.
+func (d *DB) ListSessionsNeedingAnalysis(ctx context.Context, conversationID string, limit int) ([]ConversationSession, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	const q = `
+SELECT id, conversation_id, started_at, ended_at, message_count
+FROM conversation_sessions
+WHERE (summary IS NULL OR summary = '' OR embedding IS NULL)
+  AND message_count > 0
+  AND ($1 = '' OR conversation_id = $1)
+ORDER BY conversation_id ASC, started_at ASC
+LIMIT $2;
+`
+	rows, err := d.Pool.Query(ctx, q, conversationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query sessions needing analysis: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []ConversationSession
+	for rows.Next() {
+		var s ConversationSession
+		if err := rows.Scan(&s.ID, &s.ConversationID, &s.StartedAt, &s.EndedAt, &s.MessageCount); err != nil {
+			return nil, fmt.Errorf("scan session needing analysis: %w", err)
+		}
+		sessions = append(sessions, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sessions needing analysis: %w", err)
+	}
+	return sessions, nil
+}
+
+// UpdateSessionAnalysis stores a regenerated summary and embedding for an
+// existing session, without changing its boundaries or message linkage.
+func (d *DB) UpdateSessionAnalysis(ctx context.Context, sessionID int64, summary string, embedding *pgvector.HalfVector) error {
+	if sessionID <= 0 {
+		return fmt.Errorf("session ID must be positive")
+	}
+	var embeddingArg any
+	if embedding != nil {
+		embeddingArg = embedding.String()
+	}
+	const q = `
+UPDATE conversation_sessions
+SET summary = $2, embedding = $3, is_processed = TRUE, updated_at = NOW()
+WHERE id = $1;
+`
+	tag, err := d.Pool.Exec(ctx, q, sessionID, summary, embeddingArg)
+	if err != nil {
+		return fmt.Errorf("update session analysis: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
