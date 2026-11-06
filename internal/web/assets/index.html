@@ -269,6 +269,7 @@
     <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
     <button class="tab-btn" onclick="switchTab('testbench')">Diagnostic Test Bench</button>
     <button class="tab-btn" onclick="switchTab('tuner')">Runtime Tuner</button>
+    <button class="tab-btn" onclick="switchTab('models')">Models</button>
     <button class="tab-btn" id="compose-tab-btn" onclick="switchTab('compose')" style="display: none;">Compose &amp; Send</button>
   </nav>
 
@@ -453,6 +454,48 @@
     </div>
   </div>
 
+  <!-- Tab: LLM Models -->
+  <div id="tab-models" class="tab-content">
+    <div class="card" style="max-width: 680px;">
+      <div class="card-title">LLM Model Selection</div>
+      <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">
+        Choose the model for each pipeline role. Changes apply immediately
+        (hot reload) and persist across restarts.
+      </p>
+
+      <div id="models-alert" class="alert-banner"></div>
+
+      <div class="form-group">
+        <label class="form-label" for="model-summary">Session Summary Model</label>
+        <select id="model-summary" class="form-control"></select>
+        <span style="font-size: 12px; color: var(--text-muted);">Titles and summaries for contiguous conversation sessions.</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="model-dossier">Living Dossier Model</label>
+        <select id="model-dossier" class="form-control"></select>
+        <span style="font-size: 12px; color: var(--text-muted);">Reconciles session digests into the Living Dossier.</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="model-vision">Vision OCR Model</label>
+        <select id="model-vision" class="form-control"></select>
+        <span style="font-size: 12px; color: var(--text-muted);">Must support images. Only vision-capable models are listed (marked &#128065;).</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="model-embedding">Embedding Model</label>
+        <select id="model-embedding" class="form-control"></select>
+        <span style="font-size: 12px; color: var(--text-muted);">Changing this invalidates existing vectors; new sessions use the new model. Dimension must remain 1536.</span>
+      </div>
+
+      <div style="display: flex; gap: 12px; margin-top: 24px;">
+        <button type="button" class="btn btn-primary" onclick="applyModelSettings()">Save &amp; Apply</button>
+        <button type="button" class="btn btn-untrack" onclick="loadModelSettings()">Reload Current</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Tab 4: Compose & Send -->
   <div id="tab-compose" class="tab-content">
     <div class="card" style="max-width: 680px;">
@@ -529,6 +572,8 @@
 
       if (tabId === 'tuner') {
         loadTunerSettings();
+      } else if (tabId === 'models') {
+        loadModelSettings();
       }
     }
 
@@ -739,6 +784,89 @@
       } catch (err) {
         alertEl.className = 'alert-banner alert-danger';
         alertEl.textContent = 'Failed to apply settings: ' + err.message;
+        alertEl.style.display = 'block';
+      }
+    }
+
+    // LLM Model selection functions
+    let modelCatalog = [];
+
+    function fillModelSelect(id, selected, visionOnly) {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      sel.innerHTML = '';
+      let matched = false;
+      modelCatalog.forEach(m => {
+        if (visionOnly && !m.supports_vision) return;
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.id + (m.supports_vision ? ' \uD83D\uDC41' : '');
+        if (m.id === selected) { opt.selected = true; matched = true; }
+        sel.appendChild(opt);
+      });
+      // Keep the current value visible even if the gateway did not list it.
+      if (selected && !matched) {
+        const opt = document.createElement('option');
+        opt.value = selected;
+        opt.textContent = selected + ' (current)';
+        opt.selected = true;
+        sel.insertBefore(opt, sel.firstChild);
+      }
+    }
+
+    async function loadModelSettings() {
+      const alertEl = document.getElementById('models-alert');
+      alertEl.style.display = 'none';
+      try {
+        const res = await fetch('/api/v1/models');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to load models');
+
+        modelCatalog = data.available || [];
+        const sel = data.selected || {};
+        fillModelSelect('model-summary', sel.summary_model, false);
+        fillModelSelect('model-dossier', sel.dossier_model, false);
+        fillModelSelect('model-vision', sel.vision_model, true);
+        fillModelSelect('model-embedding', sel.embedding_model, false);
+
+        if (data.warning) {
+          alertEl.className = 'alert-banner alert-danger';
+          alertEl.textContent = data.warning;
+          alertEl.style.display = 'block';
+        }
+      } catch (err) {
+        alertEl.className = 'alert-banner alert-danger';
+        alertEl.textContent = 'Error loading models: ' + err.message;
+        alertEl.style.display = 'block';
+      }
+    }
+
+    async function applyModelSettings() {
+      const alertEl = document.getElementById('models-alert');
+      alertEl.style.display = 'none';
+
+      const payload = {
+        summary_model: document.getElementById('model-summary').value.trim(),
+        dossier_model: document.getElementById('model-dossier').value.trim(),
+        vision_model: document.getElementById('model-vision').value.trim(),
+        embedding_model: document.getElementById('model-embedding').value.trim()
+      };
+
+      try {
+        const res = await fetch('/api/v1/models', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update models');
+
+        alertEl.className = 'alert-banner alert-success';
+        alertEl.textContent = 'Model selection saved and hot-reloaded; no restart required.';
+        alertEl.style.display = 'block';
+      } catch (err) {
+        alertEl.className = 'alert-banner alert-danger';
+        alertEl.textContent = 'Failed to apply models: ' + err.message;
         alertEl.style.display = 'block';
       }
     }

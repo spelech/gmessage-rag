@@ -38,6 +38,10 @@ type LLMClientConfig struct {
 	EmbeddingModel      string
 	EmbeddingDimensions int
 	HTTPClient          *http.Client
+	// SummaryModelFunc and EmbeddingModelFunc, when set, return the model to
+	// use for each call. They enable hot-reloadable model selection.
+	SummaryModelFunc   func() string
+	EmbeddingModelFunc func() string
 }
 
 type openAIClient struct {
@@ -49,6 +53,8 @@ type openAIClient struct {
 	embeddingModel      string
 	embeddingDimensions int
 	httpClient          *http.Client
+	summaryModelFunc    func() string
+	embeddingModelFunc  func() string
 }
 
 // NewOpenAIClient constructs an OpenAI-compatible LLM client implementing LLMClient.
@@ -93,7 +99,31 @@ func NewOpenAIClient(cfg LLMClientConfig) LLMClient {
 		embeddingModel:      embModel,
 		embeddingDimensions: dims,
 		httpClient:          hc,
+		summaryModelFunc:    cfg.SummaryModelFunc,
+		embeddingModelFunc:  cfg.EmbeddingModelFunc,
 	}
+}
+
+// resolveSummaryModel returns the hot-reloadable summary model, falling back to
+// the statically configured value.
+func (c *openAIClient) resolveSummaryModel() string {
+	if c.summaryModelFunc != nil {
+		if m := strings.TrimSpace(c.summaryModelFunc()); m != "" {
+			return m
+		}
+	}
+	return c.summaryModel
+}
+
+// resolveEmbeddingModel returns the hot-reloadable embedding model, falling back
+// to the statically configured value.
+func (c *openAIClient) resolveEmbeddingModel() string {
+	if c.embeddingModelFunc != nil {
+		if m := strings.TrimSpace(c.embeddingModelFunc()); m != "" {
+			return m
+		}
+	}
+	return c.embeddingModel
 }
 
 type chatMessage struct {
@@ -138,7 +168,7 @@ func (c *openAIClient) GenerateSummary(ctx context.Context, transcript string) (
 	}
 
 	reqBody := chatCompletionRequest{
-		Model: c.summaryModel,
+		Model: c.resolveSummaryModel(),
 		Messages: []chatMessage{
 			{Role: "system", Content: summarySystemPrompt},
 			{Role: "user", Content: transcript},
@@ -243,7 +273,7 @@ func (c *openAIClient) GenerateEmbedding(ctx context.Context, text string) ([]fl
 	}
 
 	reqBody := embeddingRequest{
-		Model:      c.embeddingModel,
+		Model:      c.resolveEmbeddingModel(),
 		Input:      text,
 		Dimensions: c.embeddingDimensions,
 	}

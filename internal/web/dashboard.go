@@ -48,8 +48,15 @@ func NewDashboardHandlerWithTuner(database *db.DB, gmClient *gm.Client, tuner *c
 // - POST /api/v1/send (JSON text or reaction)
 // - POST /api/v1/send/media (multipart streaming upload)
 func NewDashboardHandlerWithSend(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner, sendEnabled bool) http.Handler {
+	return NewDashboardHandlerWithModels(database, gmClient, tuner, sendEnabled, nil, nil)
+}
+
+// NewDashboardHandlerWithModels constructs an http.Handler with an optional
+// model registry and gateway model catalog. It adds the model selection surface:
+// - GET/PUT /api/v1/models
+func NewDashboardHandlerWithModels(database *db.DB, gmClient *gm.Client, tuner *config.RuntimeTuner, sendEnabled bool, models *config.ModelRegistry, catalog ModelCatalog) http.Handler {
 	mux := http.NewServeMux()
-	api := NewAPIHandlerWithSend(database, gmClient, tuner, sendEnabled)
+	api := NewAPIHandlerWithModels(database, gmClient, tuner, sendEnabled, models, catalog)
 
 	// API endpoints
 	mux.HandleFunc("/api/v1/status", api.HandleStatus)
@@ -58,6 +65,7 @@ func NewDashboardHandlerWithSend(database *db.DB, gmClient *gm.Client, tuner *co
 	mux.HandleFunc("/api/v1/tuner", api.HandleTuner)
 	mux.HandleFunc("/api/v1/briefing", api.HandleBriefing)
 	mux.HandleFunc("/api/v1/briefing/today", api.HandleBriefing)
+	mux.HandleFunc("/api/v1/models", api.HandleModels)
 
 	// Outbound send endpoints. They fail closed when disabled, and the UI hides
 	// the send tab when /api/v1/status reports send_enabled=false.

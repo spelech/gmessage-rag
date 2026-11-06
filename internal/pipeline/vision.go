@@ -38,6 +38,9 @@ type OpenAIVisionClientConfig struct {
 	MaxRetries int
 	RetryDelay time.Duration
 	Logger     zerolog.Logger
+	// ModelFunc, when set, returns the model to use for each call, enabling
+	// hot-reloadable model selection.
+	ModelFunc func() string
 }
 
 // OpenAIVisionClient implements VisionClient via OpenAI-compatible Chat Completions API.
@@ -49,6 +52,7 @@ type OpenAIVisionClient struct {
 	maxRetries int
 	retryDelay time.Duration
 	logger     zerolog.Logger
+	modelFunc  func() string
 }
 
 // NewOpenAIVisionClient constructs a new OpenAIVisionClient.
@@ -59,7 +63,7 @@ func NewOpenAIVisionClient(cfg OpenAIVisionClientConfig) *OpenAIVisionClient {
 	}
 	model := strings.TrimSpace(cfg.Model)
 	if model == "" {
-		model = "google/gemini-2.5-flash"
+		model = "glm-flash"
 	}
 	client := cfg.HTTPClient
 	if client == nil {
@@ -83,7 +87,19 @@ func NewOpenAIVisionClient(cfg OpenAIVisionClientConfig) *OpenAIVisionClient {
 		maxRetries: maxRetries,
 		retryDelay: retryDelay,
 		logger:     cfg.Logger.With().Str("component", "vision_client").Logger(),
+		modelFunc:  cfg.ModelFunc,
 	}
+}
+
+// resolveModel returns the hot-reloadable vision model, falling back to the
+// statically configured value.
+func (c *OpenAIVisionClient) resolveModel() string {
+	if c.modelFunc != nil {
+		if v := strings.TrimSpace(c.modelFunc()); v != "" {
+			return v
+		}
+	}
+	return c.model
 }
 
 // SanitizeSecret ensures API keys or credentials are never exposed in log outputs or error messages.
@@ -148,7 +164,7 @@ func (c *OpenAIVisionClient) ExtractImageContext(ctx context.Context, imageData 
 	dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64Image)
 
 	reqPayload := openAIChatRequest{
-		Model: c.model,
+		Model: c.resolveModel(),
 		Messages: []openAIChatMessage{
 			{
 				Role: "user",

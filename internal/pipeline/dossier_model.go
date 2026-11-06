@@ -21,6 +21,9 @@ type DossierModelConfig struct {
 	Model      string
 	HTTPClient *http.Client
 	Logger     zerolog.Logger
+	// ModelFunc, when set, returns the model to use for each call, enabling
+	// hot-reloadable model selection.
+	ModelFunc func() string
 }
 
 type openAIDossierModel struct {
@@ -29,6 +32,7 @@ type openAIDossierModel struct {
 	model      string
 	httpClient *http.Client
 	logger     zerolog.Logger
+	modelFunc  func() string
 }
 
 const dossierSystemPrompt = `You are the Living Dossier state reconciliation engine for a personal messaging archive.
@@ -79,7 +83,7 @@ func NewOpenAIDossierModel(cfg DossierModelConfig) DossierModel {
 	}
 	model := strings.TrimSpace(cfg.Model)
 	if model == "" {
-		model = "anthropic/claude-3.7-sonnet"
+		model = "deepseek-flash"
 	}
 	client := cfg.HTTPClient
 	if client == nil {
@@ -92,7 +96,19 @@ func NewOpenAIDossierModel(cfg DossierModelConfig) DossierModel {
 		model:      model,
 		httpClient: client,
 		logger:     cfg.Logger.With().Str("component", "dossier_model").Logger(),
+		modelFunc:  cfg.ModelFunc,
 	}
+}
+
+// resolveModel returns the hot-reloadable dossier model, falling back to the
+// statically configured value.
+func (m *openAIDossierModel) resolveModel() string {
+	if m.modelFunc != nil {
+		if v := strings.TrimSpace(m.modelFunc()); v != "" {
+			return v
+		}
+	}
+	return m.model
 }
 
 // Reconcile calls the OpenAI-compatible chat endpoint and parses the reconciled dossier.
@@ -110,7 +126,7 @@ func (m *openAIDossierModel) Reconcile(ctx context.Context, req DossierReconcile
 	fmt.Fprintf(&user, "NEW SESSIONS:\n%s\n", req.SessionDigest)
 
 	payload := dossierChatRequest{
-		Model: m.model,
+		Model: m.resolveModel(),
 		Messages: []dossierChatMessage{
 			{Role: "system", Content: dossierSystemPrompt},
 			{Role: "user", Content: user.String()},
