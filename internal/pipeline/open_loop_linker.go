@@ -31,11 +31,11 @@ type OpenLoopCandidate struct {
 
 // OpenLoopMatch holds an antecedent link detected between a session and an open loop.
 type OpenLoopMatch struct {
-	OpenLoopID     string  `json:"open_loop_id"`
-	TargetSessionID int64  `json:"target_session_id"`
-	Reason         string  `json:"reason"`
-	Confidence     float64 `json:"confidence"`
-	Status         string  `json:"status"` // "resolved" or "continuation"
+	OpenLoopID      string  `json:"open_loop_id"`
+	TargetSessionID int64   `json:"target_session_id"`
+	Reason          string  `json:"reason"`
+	Confidence      float64 `json:"confidence"`
+	Status          string  `json:"status"` // "resolved" or "continuation"
 }
 
 // OpenLoopLinker detects when a new session references, answers, or resolves an active open loop.
@@ -150,11 +150,11 @@ func (l *OpenLoopLinker) DetectAndRecordLinks(ctx context.Context, conversationI
 		for _, c := range candidates {
 			if strings.TrimSpace(c.Title) != "" && strings.Contains(transcriptLower, strings.ToLower(c.Title)) {
 				matches = append(matches, OpenLoopMatch{
-					OpenLoopID:     c.ID,
+					OpenLoopID:      c.ID,
 					TargetSessionID: c.SessionID,
-					Reason:         fmt.Sprintf("Transcript explicitly mentions '%s'", c.Title),
-					Confidence:     0.85,
-					Status:         "continuation",
+					Reason:          fmt.Sprintf("Transcript explicitly mentions '%s'", c.Title),
+					Confidence:      0.85,
+					Status:          "continuation",
 				})
 			}
 		}
