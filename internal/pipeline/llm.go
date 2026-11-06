@@ -55,7 +55,8 @@ type openAIClient struct {
 func NewOpenAIClient(cfg LLMClientConfig) LLMClient {
 	hc := cfg.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 60 * time.Second}
+		// Reasoning models can take longer before emitting a response.
+		hc = &http.Client{Timeout: 180 * time.Second}
 	}
 
 	llmBase := strings.TrimRight(cfg.LLMBaseURL, "/")

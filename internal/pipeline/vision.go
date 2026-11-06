@@ -63,7 +63,8 @@ func NewOpenAIVisionClient(cfg OpenAIVisionClientConfig) *OpenAIVisionClient {
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 45 * time.Second}
+		// Reasoning models can take longer before emitting a response.
+		client = &http.Client{Timeout: 180 * time.Second}
 	}
 	maxRetries := cfg.MaxRetries
 	if maxRetries <= 0 {
