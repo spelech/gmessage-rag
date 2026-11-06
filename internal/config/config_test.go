@@ -111,6 +111,26 @@ func TestLoadConfig_OverridesAndBoundaries(t *testing.T) {
 	}
 }
 
+// A JSON array keeps group names containing commas intact.
+func TestLoadConfig_TrackedContactsJSONArray(t *testing.T) {
+	t.Setenv("TRACKED_CONTACTS", `["Molly Madden","Daniel Garcia, Ryan Cook","Neil Pelech"]`)
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error loading config: %v", err)
+	}
+
+	if len(cfg.TrackedContacts) != 3 {
+		t.Fatalf("expected 3 tracked contacts, got %d: %v", len(cfg.TrackedContacts), cfg.TrackedContacts)
+	}
+	if cfg.TrackedContacts[1] != "Daniel Garcia, Ryan Cook" {
+		t.Errorf("expected group name preserved as one target, got %q", cfg.TrackedContacts[1])
+	}
+	if !cfg.IsTracked("Daniel Garcia, Ryan Cook") {
+		t.Errorf("expected group name to be tracked as a single target")
+	}
+}
+
 // TestLoadConfig_SyncSettings verifies SYNC-01 configuration parsing: defaults,
 // overrides, and boundary fallbacks for the connection schedule and ping tuning.
 func TestLoadConfig_SyncSettings(t *testing.T) {
