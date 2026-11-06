@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -76,7 +75,7 @@ func runIngest(cmd *cobra.Command, args []string) error {
 		dbURL = "postgres://rcsrag:changeme@127.0.0.1:5432/gmessages?sslmode=disable"
 	} else {
 		// If running on host, substitute docker service name 'db' with 127.0.0.1
-		dbURL = strings.Replace(dbURL, "@db:5432", "@127.0.0.1:5432", 1)
+		dbURL = resolveDatabaseURL(dbURL)
 	}
 
 	logger.Info().Str("session_path", sessionPath).Str("db_url", dbURL).Msg("Connecting to PostgreSQL database...")
