@@ -143,3 +143,42 @@ func TestConversations_ResetBackfill(t *testing.T) {
 	var nilDB *db.DB
 	assert.Error(t, nilDB.ResetConversationBackfill(ctx, convID))
 }
+
+// TestConversations_UpsertPreservesNameOnEmpty verifies that a re-upsert with an
+// empty name does not clobber the stored name, while a non-empty name updates it.
+// This protects ingest and ETL callers that pass an empty name when a raw
+// conversation ID is supplied without an explicit contact name.
+func TestConversations_UpsertPreservesNameOnEmpty(t *testing.T) {
+	database := getTestDB(t)
+	ctx := context.Background()
+
+	convID := "conv-name-" + uuid.New().String()
+
+	// Seed with a real name.
+	require.NoError(t, database.UpsertConversation(ctx, &db.Conversation{
+		ID:   convID,
+		Name: "Daniel Garcia, Ryan Cook",
+	}))
+
+	fetched, err := database.GetConversation(ctx, convID)
+	require.NoError(t, err)
+	assert.Equal(t, "Daniel Garcia, Ryan Cook", fetched.Name)
+
+	// Re-upsert with an empty name: the stored name must survive.
+	require.NoError(t, database.UpsertConversation(ctx, &db.Conversation{
+		ID:   convID,
+		Name: "",
+	}))
+	fetched, err = database.GetConversation(ctx, convID)
+	require.NoError(t, err)
+	assert.Equal(t, "Daniel Garcia, Ryan Cook", fetched.Name)
+
+	// Re-upsert with a new name: the stored name must update.
+	require.NoError(t, database.UpsertConversation(ctx, &db.Conversation{
+		ID:   convID,
+		Name: "Neil Pelech",
+	}))
+	fetched, err = database.GetConversation(ctx, convID)
+	require.NoError(t, err)
+	assert.Equal(t, "Neil Pelech", fetched.Name)
+}
