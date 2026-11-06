@@ -8,7 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Ingest LLM Endpoint Resolution**: The `ingest` CLI unconditionally rewrote the LiteLLM base URL from `http://litellm:4000` to `http://localhost:8448`, assuming it ran on the host. Inside the container that address is refused, so every summary and embedding call failed and sessions were stored without summaries. The CLI now probes the configured endpoint and falls back to the published host port only when it is unreachable.
+- **Reasoning Model Timeouts**: Raised the LLM client timeout (60s to 180s) and the vision client timeout (45s to 180s). Reasoning models spend tokens on internal reasoning before emitting an answer, so the previous budgets produced context-deadline errors.
 - **Tracked Contact Resolution & Group Names**: Fixed index misalignment in the ETL resolver, so multiple targets that resolve to the same conversation (for example both members of a group chat) no longer shift stored conversation names. `TRACKED_CONTACTS` now accepts a JSON array (`TRACKED_CONTACTS='["Molly Madden","Daniel Garcia, Ryan Cook"]'`), so a group name containing commas is tracked as one target. `UpsertConversation` preserves the stored name when an empty name is supplied, and `ingest --conv <id>` without `--contact` no longer overwrites the conversation name with the default contact.
+
+### Changed
+- **Default Models Moved Off Vertex AI**: Default `DOSSIER_MODEL` and `SUMMARY_MODEL` to `deepseek-flash`, and `VISION_MODEL` to `glm-flash`. These are OpenAI-compatible models served by the LiteLLM gateway, so a fresh deployment no longer falls back to Vertex AI models.
 
 ### Added
 - **Outbound `send_message` MCP Tool (`MCP-07`, #81)**: `gmessages-rag` can now send text, base64 media, and emoji reactions (add/remove) into an existing conversation. The new `internal/gm` send layer (`SendText`, `SendMedia`, `SendReaction`) uses connect-on-send: it reuses an open long-poll connection or opens a short-lived one, then holds it briefly so the outgoing echo is persisted. The tool is registered only when `ENABLE_MCP_SEND_MESSAGE=true` and a paired `gm.Client` sender is wired (`GUARD-02`). Reaction changes persist explicitly through the new `db.AddReaction`/`db.RemoveReaction` helpers. Added real-Postgres handler tests and emulator-backed send tests, plus emulator resumable-upload support.
