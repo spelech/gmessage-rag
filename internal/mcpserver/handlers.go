@@ -29,6 +29,8 @@ type Database interface {
 	GetConversation(ctx context.Context, id string) (*db.Conversation, error)
 	AddReaction(ctx context.Context, messageID, sender, emoji string) error
 	RemoveReaction(ctx context.Context, messageID, sender, emoji string) error
+	GetLinksForSession(ctx context.Context, sessionID int64) ([]db.MessageLink, error)
+	GetAntecedentSessions(ctx context.Context, sourceSessionIDs []int64) ([]db.ConversationSession, error)
 }
 
 // errDatabaseNotConfigured is returned when a tool is invoked without a database.
@@ -57,6 +59,8 @@ func builtinHandler(name string, database Database, sender MessageSender) ToolHa
 		return h.searchSharedMedia
 	case "manage_tracked_contact":
 		return h.manageTrackedContact
+	case "get_session_antecedents":
+		return h.getSessionAntecedents
 	case "send_message":
 		return h.sendMessage
 	default:
@@ -504,6 +508,46 @@ func (h *toolHandlers) manageTrackedContact(ctx context.Context, args json.RawMe
 	}
 
 	return jsonToolResult(result)
+}
+
+type sessionAntecedentsArgs struct {
+	SessionID int64 `json:"session_id"`
+}
+
+func (h *toolHandlers) getSessionAntecedents(ctx context.Context, args json.RawMessage) (*CallToolResult, error) {
+	if h.database == nil {
+		return nil, errDatabaseNotConfigured
+	}
+	var a sessionAntecedentsArgs
+	if err := decodeArgs(args, &a); err != nil {
+		return nil, err
+	}
+	if a.SessionID <= 0 {
+		return nil, errors.New("session_id must be a positive integer")
+	}
+
+	links, err := h.database.GetLinksForSession(ctx, a.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("get links for session: %w", err)
+	}
+	if links == nil {
+		links = []db.MessageLink{}
+	}
+
+	antecedents, err := h.database.GetAntecedentSessions(ctx, []int64{a.SessionID})
+	if err != nil {
+		return nil, fmt.Errorf("get antecedent sessions: %w", err)
+	}
+	if antecedents == nil {
+		antecedents = []db.ConversationSession{}
+	}
+
+	return jsonToolResult(map[string]any{
+		"session_id":          a.SessionID,
+		"links":               links,
+		"antecedent_sessions": antecedents,
+		"count":               len(antecedents),
+	})
 }
 
 // decodeArgs unmarshals tool arguments, tolerating an omitted arguments field.

@@ -123,6 +123,9 @@ func (m *openAIDossierModel) Reconcile(ctx context.Context, req DossierReconcile
 	fmt.Fprintf(&user, "Reference date (anchor relative phrases to this): %s\n\n", req.AnchorDate.UTC().Format("2006-01-02"))
 	fmt.Fprintf(&user, "PRIOR MARKDOWN:\n%s\n\n", strings.TrimSpace(req.PriorMarkdown))
 	fmt.Fprintf(&user, "PRIOR STRUCTURED STATE:\n%s\n\n", string(priorStateJSON))
+	if strings.TrimSpace(req.AntecedentDigest) != "" {
+		fmt.Fprintf(&user, "ANTECEDENT HISTORICAL SESSIONS (LINKED BY OPEN LOOPS / REPLIES):\n%s\n\n", strings.TrimSpace(req.AntecedentDigest))
+	}
 	fmt.Fprintf(&user, "NEW SESSIONS:\n%s\n", req.SessionDigest)
 
 	payload := dossierChatRequest{
