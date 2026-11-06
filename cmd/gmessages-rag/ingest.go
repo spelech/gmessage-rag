@@ -97,10 +97,7 @@ func runIngest(cmd *cobra.Command, args []string) error {
 			targetConvID = "12"
 		}
 		cfg, _ := config.LoadConfig()
-		llmBase := cfg.LLMBaseURL
-		if strings.Contains(llmBase, "litellm:4000") {
-			llmBase = "http://localhost:8448"
-		}
+		llmBase := resolveLLMEndpoint(cfg.LLMBaseURL)
 		dossierDir := "./data/dossiers"
 		_ = os.MkdirAll(dossierDir, 0755)
 		dossierModel := pipeline.NewOpenAIDossierModel(pipeline.DossierModelConfig{
@@ -241,15 +238,8 @@ func runIngest(cmd *cobra.Command, args []string) error {
 		logger.Info().Msg("Initializing LLM client for sessionization and Living Dossier...")
 		cfg, _ := config.LoadConfig()
 
-		llmBase := cfg.LLMBaseURL
-		if strings.Contains(llmBase, "litellm:4000") {
-			// On host, reach litellm on mapped port 8448
-			llmBase = "http://localhost:8448"
-		}
-		embedBase := cfg.EmbeddingBaseURL
-		if strings.Contains(embedBase, "litellm:4000") {
-			embedBase = "http://localhost:8448"
-		}
+		llmBase := resolveLLMEndpoint(cfg.LLMBaseURL)
+		embedBase := resolveLLMEndpoint(cfg.EmbeddingBaseURL)
 
 		llmClient := pipeline.NewOpenAIClient(pipeline.LLMClientConfig{
 			LLMBaseURL:          llmBase,
