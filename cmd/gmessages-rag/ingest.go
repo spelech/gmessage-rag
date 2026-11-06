@@ -149,12 +149,20 @@ func runIngest(cmd *cobra.Command, args []string) error {
 	// 4. Resolve Target Conversation ID
 	targetConvID := ingestConvID
 	targetName := ingestContact
+	// When a conversation ID is supplied directly and the caller did not name
+	// the contact, do not clobber the stored conversation name with the default.
+	if cmd.Flags().Changed("conv") && !cmd.Flags().Changed("contact") {
+		targetName = ""
+	}
 
 	if targetConvID == "" {
 		logger.Info().Str("contact_name", ingestContact).Msg("Resolving conversation ID for contact...")
 		resolved := resolveTrackedConversations(ctx, logger, gmClient, []string{ingestContact})
 		if len(resolved) > 0 {
-			targetConvID = resolved[0]
+			targetConvID = resolved[0].ID
+			if targetName == "" {
+				targetName = resolved[0].Name
+			}
 		}
 	}
 

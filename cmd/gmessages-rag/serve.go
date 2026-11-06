@@ -93,9 +93,18 @@ func cleanDigits(s string) string {
 	return b.String()
 }
 
+// resolvedContact pairs the configured target (a human name, phone number, or
+// conversation ID) with the concrete Google Messages conversation ID it resolved
+// to. Keeping them together prevents index misalignment when several targets
+// resolve to the same conversation (for example both members of a group chat).
+type resolvedContact struct {
+	Name string
+	ID   string
+}
+
 // resolveTrackedConversations converts human names, phone numbers, or conversation IDs
 // into concrete Google Messages conversation IDs by querying active conversations.
-func resolveTrackedConversations(ctx context.Context, logger zerolog.Logger, gmClient *gm.Client, targets []string) []string {
+func resolveTrackedConversations(ctx context.Context, logger zerolog.Logger, gmClient *gm.Client, targets []string) []resolvedContact {
 	if len(targets) == 0 || gmClient == nil {
 		return nil
 	}
@@ -103,11 +112,19 @@ func resolveTrackedConversations(ctx context.Context, logger zerolog.Logger, gmC
 	convResp, err := gmClient.ListConversations(ctx, 100)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Could not list conversations to resolve tracked contacts; falling back to raw targets")
-		return targets
+		fallback := make([]resolvedContact, 0, len(targets))
+		for _, t := range targets {
+			trimmed := strings.TrimSpace(t)
+			if trimmed == "" {
+				continue
+			}
+			fallback = append(fallback, resolvedContact{Name: trimmed, ID: trimmed})
+		}
+		return fallback
 	}
 
 	convs := convResp.GetConversations()
-	var resolved []string
+	var resolved []resolvedContact
 	seen := make(map[string]bool)
 
 	for _, target := range targets {
@@ -160,7 +177,7 @@ func resolveTrackedConversations(ctx context.Context, logger zerolog.Logger, gmC
 
 		if !seen[finalID] {
 			seen[finalID] = true
-			resolved = append(resolved, finalID)
+			resolved = append(resolved, resolvedContact{Name: target, ID: finalID})
 		}
 	}
 
@@ -201,7 +218,7 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 		}
 		const pageSize int64 = 100
 
-		for idx, contactID := range resolvedContacts {
+		for _, rc := range resolvedContacts {
 			select {
 			case <-ctx.Done():
 				logger.Info().Msg("Background ETL aborted due to shutdown")
@@ -209,9 +226,10 @@ func StartETLForTrackedContacts(ctx context.Context, logger zerolog.Logger, data
 			default:
 			}
 
-			contactName := contactID
-			if idx < len(trackedContacts) && strings.TrimSpace(trackedContacts[idx]) != "" {
-				contactName = strings.TrimSpace(trackedContacts[idx])
+			contactID := rc.ID
+			contactName := strings.TrimSpace(rc.Name)
+			if contactName == "" {
+				contactName = contactID
 			}
 			_ = database.UpsertConversation(ctx, &db.Conversation{
 				ID:        contactID,
@@ -298,7 +316,7 @@ func SyncTrackedContacts(ctx context.Context, logger zerolog.Logger, database *d
 		pageSize = 100
 	}
 
-	for idx, contactID := range resolvedContacts {
+	for _, rc := range resolvedContacts {
 		select {
 		case <-ctx.Done():
 			logger.Info().Msg("Periodic sync aborted due to shutdown")
@@ -306,9 +324,10 @@ func SyncTrackedContacts(ctx context.Context, logger zerolog.Logger, database *d
 		default:
 		}
 
-		contactName := contactID
-		if idx < len(trackedContacts) && strings.TrimSpace(trackedContacts[idx]) != "" {
-			contactName = strings.TrimSpace(trackedContacts[idx])
+		contactID := rc.ID
+		contactName := strings.TrimSpace(rc.Name)
+		if contactName == "" {
+			contactName = contactID
 		}
 		_ = database.UpsertConversation(ctx, &db.Conversation{
 			ID:        contactID,

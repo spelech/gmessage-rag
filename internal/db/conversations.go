@@ -44,7 +44,7 @@ INSERT INTO conversations (
     backfill_cursor, backfill_complete, metadata, created_at, updated_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name,
+    name = COALESCE(NULLIF(EXCLUDED.name, ''), conversations.name),
     participants = EXCLUDED.participants,
     is_group = EXCLUDED.is_group,
     is_tracked = EXCLUDED.is_tracked,

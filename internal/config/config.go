@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
@@ -88,14 +89,30 @@ func LoadConfig() (*Config, error) {
 		alertTimeoutCount = 1
 	}
 
-	trackedRaw := getEnv("TRACKED_CONTACTS", "")
+	trackedRaw := strings.TrimSpace(getEnv("TRACKED_CONTACTS", ""))
 	var trackedContacts []string
 	if trackedRaw != "" {
-		parts := strings.Split(trackedRaw, ",")
-		for _, p := range parts {
-			trimmed := strings.TrimSpace(p)
-			if trimmed != "" {
-				trackedContacts = append(trackedContacts, trimmed)
+		// A JSON array lets a group conversation name contain commas without
+		// being split into separate targets, e.g.
+		// TRACKED_CONTACTS='["Molly Madden","Daniel Garcia, Ryan Cook"]'.
+		// Plain comma-separated values remain supported for backward compatibility.
+		if strings.HasPrefix(trackedRaw, "[") {
+			var arr []string
+			if err := json.Unmarshal([]byte(trackedRaw), &arr); err == nil {
+				for _, p := range arr {
+					trimmed := strings.TrimSpace(p)
+					if trimmed != "" {
+						trackedContacts = append(trackedContacts, trimmed)
+					}
+				}
+			}
+		}
+		if len(trackedContacts) == 0 {
+			for _, p := range strings.Split(trackedRaw, ",") {
+				trimmed := strings.TrimSpace(p)
+				if trimmed != "" {
+					trackedContacts = append(trackedContacts, trimmed)
+				}
 			}
 		}
 	}
