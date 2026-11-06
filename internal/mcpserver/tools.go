@@ -143,6 +143,20 @@ func BuiltinToolDefinitions(enableSendMessage bool) []Tool {
 				"required": []string{"conversation_id", "action"},
 			},
 		},
+		{
+			Name:        "get_session_antecedents",
+			Description: "Retrieves causal antecedent sessions linked to a given session via open loop resolution or explicit replies.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"session_id": map[string]any{
+						"type":        "integer",
+						"description": "ID of the source conversation session.",
+					},
+				},
+				"required": []string{"session_id"},
+			},
+		},
 	}
 
 	if enableSendMessage {

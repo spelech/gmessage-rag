@@ -457,3 +457,21 @@ func TestParseOptionalTime(t *testing.T) {
 	_, err = parseOptionalTime("invalid-time")
 	assert.Error(t, err)
 }
+
+func TestGetSessionAntecedents_UnitValidation(t *testing.T) {
+	srv := NewServer(ServerOptions{
+		Name:     "test",
+		Database: nil,
+	})
+
+	resp := srv.HandleMessage(context.Background(), &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      "test-ant-1",
+		Method:  MethodToolsCall,
+		Params:  []byte(`{"name":"get_session_antecedents","arguments":{"session_id":123}}`),
+	})
+	require.NotNil(t, resp)
+	res, ok := resp.Result.(*CallToolResult)
+	require.True(t, ok)
+	assert.True(t, res.IsError)
+}

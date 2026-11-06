@@ -94,6 +94,41 @@ WHERE conversation_id = $2 AND id = ANY($3);
 		if err != nil {
 			return nil, fmt.Errorf("link messages to session: %w", err)
 		}
+
+		// Insert causal message_links for any explicit replies between sessions
+		const linkRepliesSQL = `
+INSERT INTO message_links (
+    conversation_id,
+    source_session_id,
+    target_session_id,
+    source_message_id,
+    target_message_id,
+    link_type,
+    confidence,
+    evidence,
+    status,
+    created_by
+)
+SELECT
+    m1.conversation_id,
+    m1.session_id,
+    m2.session_id,
+    m1.id,
+    m2.id,
+    'explicit_reply',
+    1.000,
+    jsonb_build_object('source_sent_at', m1.sent_at, 'target_sent_at', m2.sent_at),
+    'detected',
+    'detector:protocol_reply'
+FROM messages m1
+JOIN messages m2 ON m1.reply_to_message_id = m2.id
+WHERE m1.id = ANY($1)
+  AND m1.session_id IS NOT NULL
+  AND m2.session_id IS NOT NULL
+  AND m1.session_id <> m2.session_id
+ON CONFLICT DO NOTHING;
+`
+		_, _ = tx.Exec(ctx, linkRepliesSQL, messageIDs)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

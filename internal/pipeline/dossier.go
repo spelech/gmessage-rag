@@ -32,6 +32,7 @@ type DossierStore interface {
 	) (*db.ContactDossier, error)
 	GetSessionsSince(ctx context.Context, conversationID string, since *time.Time) ([]db.ConversationSession, error)
 	GetConversation(ctx context.Context, id string) (*db.Conversation, error)
+	GetAntecedentSessions(ctx context.Context, sourceSessionIDs []int64) ([]db.ConversationSession, error)
 }
 
 // DossierModel abstracts the injectable, OpenAI-compatible LLM reconciliation boundary.
@@ -41,11 +42,12 @@ type DossierModel interface {
 
 // DossierReconcileRequest hands the prior dossier and new session digests to the model.
 type DossierReconcileRequest struct {
-	ContactName   string
-	PriorMarkdown string
-	PriorState    map[string]any
-	SessionDigest string
-	AnchorDate    time.Time
+	ContactName      string
+	PriorMarkdown    string
+	PriorState       map[string]any
+	SessionDigest    string
+	AntecedentDigest string // Linked historical antecedent sessions resolved via open loops or replies
+	AnchorDate       time.Time
 }
 
 // DossierReconcileResult is the model's proposed reconciled dossier.
@@ -137,12 +139,24 @@ func (r *DossierReconciler) Reconcile(ctx context.Context, conversationID string
 	latest := sessions[len(sessions)-1]
 	anchor := latest.EndedAt.UTC()
 
+	var sessionIDs []int64
+	for _, s := range sessions {
+		sessionIDs = append(sessionIDs, s.ID)
+	}
+
+	var antecedentDigest string
+	antecedents, err := r.store.GetAntecedentSessions(ctx, sessionIDs)
+	if err == nil && len(antecedents) > 0 {
+		antecedentDigest = formatSessionDigest(antecedents, r.location)
+	}
+
 	result, err := r.reconcileWithModel(ctx, DossierReconcileRequest{
-		ContactName:   contactName,
-		PriorMarkdown: priorMarkdown(prior),
-		PriorState:    priorState(prior),
-		SessionDigest: formatSessionDigest(sessions, r.location),
-		AnchorDate:    anchor,
+		ContactName:      contactName,
+		PriorMarkdown:    priorMarkdown(prior),
+		PriorState:       priorState(prior),
+		SessionDigest:    formatSessionDigest(sessions, r.location),
+		AntecedentDigest: antecedentDigest,
+		AnchorDate:       anchor,
 	})
 	if err != nil {
 		return nil, err
