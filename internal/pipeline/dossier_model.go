@@ -46,6 +46,7 @@ Reconcile them into an updated dossier. Follow these rules exactly:
    or a "relative_date" phrase copied verbatim from the conversation (for example "tomorrow").
 5. "supersedes": an array of entry "id" values whose facts are contradicted by newer sessions.
 6. New facts supersede old facts; retain historical context rather than deleting it.
+7. Event Anchoring & Open Loop Resolution: When an open loop or suggested activity (e.g., watching a movie, dinner, or day trip) is selected, proposed, or discussed as the plan or alternative for a scheduled date (such as a bye-week replacement or weekend meetup), capture it under "upcoming_events" with that date and clear explanation, and resolve or supersede the corresponding open loop rather than stranding it as a detached open loop.
 Respond ONLY with the raw JSON object; do not wrap it in markdown code fences.`
 
 type dossierChatMessage struct {
