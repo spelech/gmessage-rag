@@ -106,6 +106,20 @@ func NewDossierReconciler(cfg DossierReconcilerConfig) *DossierReconciler {
 // dossier. It no-ops when nothing new has arrived. The prior dossier is snapshotted into
 // contact_dossier_history by UpsertContactDossier, and the rendered Markdown is exported to disk.
 func (r *DossierReconciler) Reconcile(ctx context.Context, conversationID string) (*DossierOutcome, error) {
+	prior, err := r.loadPriorDossier(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	var since *time.Time
+	if prior != nil {
+		since = prior.LastProcessedMessageAt
+	}
+	return r.ReconcileSince(ctx, conversationID, since)
+}
+
+// ReconcileSince reconciles sessions occurring since the given timestamp. If since is nil,
+// it processes all sessions for the conversation (full rebuild).
+func (r *DossierReconciler) ReconcileSince(ctx context.Context, conversationID string, since *time.Time) (*DossierOutcome, error) {
 	if r.store == nil {
 		return nil, errors.New("dossier store cannot be nil")
 	}
@@ -121,11 +135,6 @@ func (r *DossierReconciler) Reconcile(ctx context.Context, conversationID string
 	contactName, participants, err := r.loadConversationContext(ctx, conversationID)
 	if err != nil {
 		return nil, err
-	}
-
-	var since *time.Time
-	if prior != nil {
-		since = prior.LastProcessedMessageAt
 	}
 
 	sessions, err := r.store.GetSessionsSince(ctx, conversationID, since)
@@ -172,7 +181,7 @@ func (r *DossierReconciler) Reconcile(ctx context.Context, conversationID string
 	ApplyChronologicalOverrides(state, result.Supersedes)
 	TransitionPastEvents(state, anchor)
 
-	state = r.enrichWithContacts(ctx, state, participants)
+	state = r.enrichWithContacts(ctx, state, participants, contactName)
 
 	markdown := RenderDossierMarkdown(contactName, state, result.Markdown)
 
@@ -245,7 +254,7 @@ func (r *DossierReconciler) reconcileWithModel(ctx context.Context, req DossierR
 }
 
 // enrichWithContacts merges Google Contacts ground truth into the structured state (PIPE-04).
-func (r *DossierReconciler) enrichWithContacts(ctx context.Context, state map[string]any, participants []string) map[string]any {
+func (r *DossierReconciler) enrichWithContacts(ctx context.Context, state map[string]any, participants []string, contactName string) map[string]any {
 	if r.contactSource == nil {
 		return state
 	}
@@ -254,7 +263,7 @@ func (r *DossierReconciler) enrichWithContacts(ctx context.Context, state map[st
 		r.logger.Warn().Err(err).Msg("Contacts enrichment failed; continuing without contact metadata")
 		return state
 	}
-	return EnrichStructuredStateWithContacts(state, contacts, participants)
+	return EnrichStructuredStateWithContacts(state, contacts, participants, contactName)
 }
 
 // writeMarkdown exports the rendered dossier to <outputDir>/<slug>.md and returns the path.
@@ -322,12 +331,12 @@ func formatSessionDigest(sessions []db.ConversationSession, loc *time.Location) 
 	return strings.TrimSpace(b.String())
 }
 
-// priorMarkdown returns the prior dossier Markdown, or an empty string.
+// priorMarkdown returns the prior dossier Markdown stripped of rendered event sections, or an empty string.
 func priorMarkdown(prior *db.ContactDossier) string {
 	if prior == nil {
 		return ""
 	}
-	return prior.MarkdownContent
+	return StripRenderedDossierSections(prior.MarkdownContent)
 }
 
 // priorState returns the prior dossier structured state, or an empty map.

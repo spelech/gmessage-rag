@@ -45,6 +45,8 @@ type DossierWebhookEvent struct {
 	ChangedAt       time.Time      `json:"changed_at"`
 	StructuredState map[string]any `json:"structured_state"`
 	Markdown        string         `json:"markdown"`
+	SlackBlocks     map[string]any `json:"slack_blocks,omitempty"`
+	AdaptiveCard    map[string]any `json:"adaptive_card,omitempty"`
 }
 
 // WebhookDispatcher delivers dossier update events to a configured HTTP endpoint with

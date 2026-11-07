@@ -11,6 +11,7 @@ import (
 
 	"github.com/spelech/gmessage-rag/internal/db"
 	"github.com/spelech/gmessage-rag/internal/gm"
+	"github.com/spelech/gmessage-rag/internal/notify"
 )
 
 // Database defines the persistence operations consumed by the MCP tool handlers.
@@ -39,13 +40,20 @@ var errDatabaseNotConfigured = errors.New("database is not configured for the MC
 // toolHandlers binds the MCP tool surface to a persistence layer and an
 // optional outbound message transport.
 type toolHandlers struct {
-	database Database
-	sender   MessageSender
+	database  Database
+	sender    MessageSender
+	taskMgr   *TaskManager
+	rebuilder DossierRebuildFunc
 }
 
 // builtinHandler selects the handler for a builtin tool name.
-func builtinHandler(name string, database Database, sender MessageSender) ToolHandler {
-	h := &toolHandlers{database: database, sender: sender}
+func builtinHandler(name string, database Database, sender MessageSender, taskMgr *TaskManager, rebuilder DossierRebuildFunc) ToolHandler {
+	h := &toolHandlers{
+		database:  database,
+		sender:    sender,
+		taskMgr:   taskMgr,
+		rebuilder: rebuilder,
+	}
 	switch name {
 	case "list_conversations":
 		return h.listConversations
@@ -61,6 +69,10 @@ func builtinHandler(name string, database Database, sender MessageSender) ToolHa
 		return h.manageTrackedContact
 	case "get_session_antecedents":
 		return h.getSessionAntecedents
+	case "redo_contact_dossier":
+		return h.redoContactDossier
+	case "get_task_status":
+		return h.getTaskStatus
 	case "send_message":
 		return h.sendMessage
 	default:
@@ -244,6 +256,7 @@ func (h *toolHandlers) listConversations(ctx context.Context, args json.RawMessa
 type contactDossierArgs struct {
 	ConversationID string `json:"conversation_id"`
 	ContactName    string `json:"contact_name"`
+	Format         string `json:"format"`
 }
 
 func (h *toolHandlers) getContactDossier(ctx context.Context, args json.RawMessage) (*CallToolResult, error) {
@@ -279,11 +292,24 @@ func (h *toolHandlers) getContactDossier(ctx context.Context, args json.RawMessa
 		tail = []db.Message{}
 	}
 
-	return jsonToolResult(map[string]any{
+	res := map[string]any{
 		"dossier":         dossier,
 		"live_tail":       tail,
 		"live_tail_count": len(tail),
-	})
+	}
+
+	format := strings.ToLower(strings.TrimSpace(a.Format))
+	switch format {
+	case "slack":
+		res["slack_blocks"] = notify.SlackDossierCard(dossier)
+	case "card":
+		res["adaptive_card"] = notify.AdaptiveDossierCard(dossier)
+	case "all":
+		res["slack_blocks"] = notify.SlackDossierCard(dossier)
+		res["adaptive_card"] = notify.AdaptiveDossierCard(dossier)
+	}
+
+	return jsonToolResult(res)
 }
 
 type searchHistoryArgs struct {
@@ -548,6 +574,94 @@ func (h *toolHandlers) getSessionAntecedents(ctx context.Context, args json.RawM
 		"antecedent_sessions": antecedents,
 		"count":               len(antecedents),
 	})
+}
+
+type redoContactDossierArgs struct {
+	ConversationID string `json:"conversation_id"`
+	Since          string `json:"since"`
+}
+
+func (h *toolHandlers) redoContactDossier(ctx context.Context, args json.RawMessage) (*CallToolResult, error) {
+	if h.taskMgr == nil {
+		return nil, errors.New("task manager not configured")
+	}
+	var a redoContactDossierArgs
+	if err := decodeArgs(args, &a); err != nil {
+		return nil, err
+	}
+	convID := strings.TrimSpace(a.ConversationID)
+	if convID == "" {
+		return nil, errors.New("conversation_id is required")
+	}
+
+	var sinceTime *time.Time
+	if strings.TrimSpace(a.Since) != "" {
+		parsed, err := time.Parse("2006-01-02", strings.TrimSpace(a.Since))
+		if err != nil {
+			parsed, err = time.Parse(time.RFC3339, strings.TrimSpace(a.Since))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid since format (want YYYY-MM-DD or RFC3339): %w", err)
+		}
+		utc := parsed.UTC()
+		sinceTime = &utc
+	}
+
+	taskID := h.taskMgr.CreateTask("redo_dossier", convID)
+
+	if h.rebuilder == nil {
+		// If no rebuilder is wired, mark completed immediately with no-op
+		h.taskMgr.SetCompleted(taskID, map[string]any{
+			"message":         "Rebuild task created but no background worker configured",
+			"conversation_id": convID,
+		})
+	} else {
+		go func(tID, cID string, s *time.Time) {
+			h.taskMgr.SetRunning(tID, "reconciling sessions")
+			// Use background context with timeout for detached execution
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+
+			res, err := h.rebuilder(bgCtx, cID, s)
+			if err != nil {
+				h.taskMgr.SetFailed(tID, err)
+			} else {
+				h.taskMgr.SetCompleted(tID, res)
+			}
+		}(taskID, convID, sinceTime)
+	}
+
+	return jsonToolResult(map[string]any{
+		"task_id":         taskID,
+		"conversation_id": convID,
+		"status":          TaskStatusPending,
+		"message":         "Dossier rebuild initiated in background. Poll using get_task_status.",
+	})
+}
+
+type getTaskStatusArgs struct {
+	TaskID string `json:"task_id"`
+}
+
+func (h *toolHandlers) getTaskStatus(ctx context.Context, args json.RawMessage) (*CallToolResult, error) {
+	if h.taskMgr == nil {
+		return nil, errors.New("task manager not configured")
+	}
+	var a getTaskStatusArgs
+	if err := decodeArgs(args, &a); err != nil {
+		return nil, err
+	}
+	taskID := strings.TrimSpace(a.TaskID)
+	if taskID == "" {
+		return nil, errors.New("task_id is required")
+	}
+
+	task, found := h.taskMgr.GetTask(taskID)
+	if !found {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+
+	return jsonToolResult(task)
 }
 
 // decodeArgs unmarshals tool arguments, tolerating an omitted arguments field.

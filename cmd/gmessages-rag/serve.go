@@ -394,6 +394,8 @@ func dispatchDossierWebhook(ctx context.Context, logger zerolog.Logger, dispatch
 		ChangedAt:       dossier.UpdatedAt,
 		StructuredState: dossier.StructuredState,
 		Markdown:        dossier.MarkdownContent,
+		SlackBlocks:     notify.SlackDossierCard(dossier),
+		AdaptiveCard:    notify.AdaptiveDossierCard(dossier),
 	}
 
 	if err := dispatcher.DispatchDossierUpdate(webhookCtx, event); err != nil {
@@ -544,6 +546,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		},
 	})
 
+	openLoopLinker := pipeline.NewOpenLoopLinker(database, llmClient, logger.With().Str("component", "open_loop_linker").Logger())
+
 	debouncer := pipeline.NewSmartDebouncer(pipeline.DebouncerConfig{
 		IdleTimeout: time.Duration(cfg.DossierDebounceMinutes) * time.Minute,
 		Logger:      logger.With().Str("component", "debouncer").Logger(),
@@ -567,6 +571,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 			}
 			logger.Info().Str("conversation_id", conversationID).Int("session_count", len(sessions)).Msg("Completed sessionization on flush")
 			metrics.SessionChunksCreatedTotal().Add(float64(len(sessions)))
+
+			// Detect and record antecedent links / open loop resolutions for new sessions (PIPE-08 / DB-10)
+			for i := range sessions {
+				if _, linkErr := openLoopLinker.DetectAndRecordLinks(flushCtx, conversationID, sessions[i]); linkErr != nil {
+					logger.Warn().Err(linkErr).Str("conversation_id", conversationID).Int64("session_id", sessions[i].ID).Msg("Open loop link detection encountered error")
+				}
+			}
+
 			// Reconcile the Living Dossier from the freshly sessionized messages (PIPE-03 / PIPE-04)
 			outcome, dossierErr := dossierReconciler.Reconcile(flushCtx, conversationID)
 			if dossierErr != nil {
@@ -709,6 +721,37 @@ func runServe(cmd *cobra.Command, args []string) error {
 		EnableSendMessage: cfg.EnableMCPSendMessage,
 		Database:          database,
 		AccessToken:       cfg.MCPAccessToken,
+		DossierRebuilder: func(rebuildCtx context.Context, conversationID string, since *time.Time) (map[string]any, error) {
+			_, _ = database.PopulateDeterministicReplyLinks(rebuildCtx, conversationID)
+			sessions, err := database.GetSessionsSince(rebuildCtx, conversationID, since)
+			if err != nil {
+				return nil, err
+			}
+			for i := range sessions {
+				_, _ = openLoopLinker.DetectAndRecordLinks(rebuildCtx, conversationID, &sessions[i])
+			}
+			outcome, err := dossierReconciler.ReconcileSince(rebuildCtx, conversationID, since)
+			if err != nil {
+				return nil, err
+			}
+			if outcome != nil && outcome.Dossier != nil {
+				if outcome.Changed {
+					dispatchDossierWebhook(rebuildCtx, logger, webhookDispatcher, outcome.Dossier)
+				}
+				return map[string]any{
+					"conversation_id": conversationID,
+					"version":         outcome.Dossier.Version,
+					"markdown":        outcome.Dossier.MarkdownContent,
+					"slack_blocks":    notify.SlackDossierCard(outcome.Dossier),
+					"adaptive_card":   notify.AdaptiveDossierCard(outcome.Dossier),
+					"updated_at":      outcome.Dossier.UpdatedAt,
+				}, nil
+			}
+			return map[string]any{
+				"conversation_id": conversationID,
+				"changed":         false,
+			}, nil
+		},
 	}
 	if cfg.EnableMCPSendMessage {
 		mcpOptions.Sender = gmClient
