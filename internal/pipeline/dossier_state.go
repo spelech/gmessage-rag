@@ -246,19 +246,24 @@ func RenderDossierMarkdown(contactName string, state map[string]any, narrative s
 	fmt.Fprintf(&b, "# Living Dossier: %s\n\n", title)
 
 	if contact := asMap(state["contact"]); contact != nil {
-		if name, _ := contact["name"].(string); strings.TrimSpace(name) != "" {
-			fmt.Fprintf(&b, "**Contact:** %s\n", name)
+		name, _ := contact["name"].(string)
+		nick, _ := contact["nickname"].(string)
+		matches := title == "Unknown Contact" || strings.EqualFold(name, title) || strings.EqualFold(nick, title)
+		if matches {
+			if strings.TrimSpace(name) != "" {
+				fmt.Fprintf(&b, "**Contact:** %s\n", name)
+			}
+			if strings.TrimSpace(nick) != "" {
+				fmt.Fprintf(&b, "**Nickname:** %s\n", nick)
+			}
+			if avatar, _ := contact["avatar_hex_color"].(string); strings.TrimSpace(avatar) != "" {
+				fmt.Fprintf(&b, "**Avatar:** `%s`\n", avatar)
+			}
+			if labels := stringSlice(contact["labels"]); len(labels) > 0 {
+				fmt.Fprintf(&b, "**Labels:** %s\n", strings.Join(labels, ", "))
+			}
+			b.WriteString("\n")
 		}
-		if nick, _ := contact["nickname"].(string); strings.TrimSpace(nick) != "" {
-			fmt.Fprintf(&b, "**Nickname:** %s\n", nick)
-		}
-		if avatar, _ := contact["avatar_hex_color"].(string); strings.TrimSpace(avatar) != "" {
-			fmt.Fprintf(&b, "**Avatar:** `%s`\n", avatar)
-		}
-		if labels := stringSlice(contact["labels"]); len(labels) > 0 {
-			fmt.Fprintf(&b, "**Labels:** %s\n", strings.Join(labels, ", "))
-		}
-		b.WriteString("\n")
 	}
 
 	if narrative = strings.TrimSpace(narrative); narrative != "" {
@@ -322,4 +327,50 @@ func stringSlice(v any) []string {
 	default:
 		return nil
 	}
+}
+
+// StripRenderedDossierSections removes the title header, contact metadata block,
+// and appended event sections (Upcoming Events, Past Events, Open Loops) so that
+// passing prior Markdown to the LLM does not cause compounding duplicate sections.
+func StripRenderedDossierSections(md string) string {
+	lines := strings.Split(md, "\n")
+	var kept []string
+	inAppendedSection := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Check for boundary event section headings
+		if strings.HasPrefix(trimmed, "## Upcoming Events") ||
+			strings.HasPrefix(trimmed, "## Past Events") ||
+			strings.HasPrefix(trimmed, "## Open Loops") {
+			inAppendedSection = true
+			continue
+		}
+		// If we encounter another H1/H2 after an appended section, resume
+		if inAppendedSection {
+			if strings.HasPrefix(trimmed, "# ") || (strings.HasPrefix(trimmed, "## ") &&
+				!strings.HasPrefix(trimmed, "## Upcoming Events") &&
+				!strings.HasPrefix(trimmed, "## Past Events") &&
+				!strings.HasPrefix(trimmed, "## Open Loops")) {
+				inAppendedSection = false
+			} else {
+				continue
+			}
+		}
+
+		// Strip outer Living Dossier headers and contact metadata prefixes
+		if strings.HasPrefix(trimmed, "# Living Dossier:") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "**Contact:**") ||
+			strings.HasPrefix(trimmed, "**Nickname:**") ||
+			strings.HasPrefix(trimmed, "**Avatar:**") ||
+			strings.HasPrefix(trimmed, "**Labels:**") {
+			continue
+		}
+
+		kept = append(kept, line)
+	}
+
+	return strings.TrimSpace(strings.Join(kept, "\n"))
 }

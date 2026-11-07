@@ -87,7 +87,7 @@ func NewOpenAIDossierModel(cfg DossierModelConfig) DossierModel {
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 90 * time.Second}
+		client = &http.Client{Timeout: 180 * time.Second}
 	}
 
 	return &openAIDossierModel{

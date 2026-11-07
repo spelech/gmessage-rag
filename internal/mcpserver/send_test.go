@@ -416,7 +416,7 @@ func TestSendMessage_FailsClosedWithoutSender(t *testing.T) {
 	// The tool is not registered without a sender (covered by the registration
 	// gating test). This exercises the handler-level guard in case a caller
 	// registers send_message manually with a nil transport.
-	handler := builtinHandler("send_message", nil, nil)
+	handler := builtinHandler("send_message", nil, nil, nil, nil)
 	_, err := handler(context.Background(), json.RawMessage(`{"conversation_id":"conv","text":"hello"}`))
 	if err == nil || !strings.Contains(err.Error(), "no outbound transport") {
 		t.Fatalf("expected no-transport error, got %v", err)

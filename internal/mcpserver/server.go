@@ -10,10 +10,14 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 // AccessTokenHeader carries the configured MCP access token for HTTP transports.
 const AccessTokenHeader = "Mcp-Access-Token"
+
+// DossierRebuildFunc is invoked when redo_contact_dossier executes.
+type DossierRebuildFunc func(ctx context.Context, conversationID string, since *time.Time) (map[string]any, error)
 
 // ServerOptions configures the MCP server instance.
 type ServerOptions struct {
@@ -27,6 +31,10 @@ type ServerOptions struct {
 	Sender MessageSender
 	// AccessToken, when non-empty, is required for every tools/call invocation.
 	AccessToken string
+	// TaskManager coordinates asynchronous background tasks.
+	TaskManager *TaskManager
+	// DossierRebuilder executes background dossier rebuilding.
+	DossierRebuilder DossierRebuildFunc
 }
 
 // Server coordinates JSON-RPC 2.0 handling under the 2026-07-28 MCP specification.
@@ -37,6 +45,8 @@ type Server struct {
 	sender      MessageSender
 	sendEnabled bool
 	accessToken string
+	taskManager *TaskManager
+	rebuilder   DossierRebuildFunc
 }
 
 // NewServer initializes an MCP server with core tool definitions and 2026-07-28 protocol compliance.
@@ -52,6 +62,11 @@ func NewServer(opts ServerOptions) *Server {
 	// is wired. Anything else fails closed.
 	enableSend := opts.EnableSendMessage && opts.Sender != nil
 
+	taskMgr := opts.TaskManager
+	if taskMgr == nil {
+		taskMgr = NewTaskManager()
+	}
+
 	s := &Server{
 		serverInfo: Implementation{
 			Name:    opts.Name,
@@ -61,11 +76,13 @@ func NewServer(opts ServerOptions) *Server {
 		sender:      opts.Sender,
 		sendEnabled: enableSend,
 		accessToken: opts.AccessToken,
+		taskManager: taskMgr,
+		rebuilder:   opts.DossierRebuilder,
 	}
 
 	// Register core tools backed by the database layer
 	for _, tool := range BuiltinToolDefinitions(enableSend) {
-		s.RegisterTool(tool, builtinHandler(tool.Name, opts.Database, opts.Sender))
+		s.RegisterTool(tool, builtinHandler(tool.Name, opts.Database, opts.Sender, taskMgr, opts.DossierRebuilder))
 	}
 
 	return s

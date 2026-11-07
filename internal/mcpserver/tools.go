@@ -35,7 +35,7 @@ func BuiltinToolDefinitions(enableSendMessage bool) []Tool {
 		},
 		{
 			Name:        "get_contact_dossier",
-			Description: "Returns current Markdown dossier, structured JSON state, plus live tail of unindexed messages sent after last dossier reconciliation.",
+			Description: "Returns current Markdown dossier, structured JSON state, plus live tail of unindexed messages sent after last dossier reconciliation. Optionally formats as Slack Block Kit or Adaptive Card.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -46,6 +46,11 @@ func BuiltinToolDefinitions(enableSendMessage bool) []Tool {
 					"contact_name": map[string]any{
 						"type":        "string",
 						"description": "Full name or slug of the contact.",
+					},
+					"format": map[string]any{
+						"type":        "string",
+						"enum":        []string{"markdown", "slack", "card", "all"},
+						"description": "Representation format for the dossier (default: markdown).",
 					},
 				},
 			},
@@ -155,6 +160,38 @@ func BuiltinToolDefinitions(enableSendMessage bool) []Tool {
 					},
 				},
 				"required": []string{"session_id"},
+			},
+		},
+		{
+			Name:        "redo_contact_dossier",
+			Description: "Asynchronously re-reconciles a contact's Living Dossier from scratch or from an optional start date, returning a tracking task ID.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"conversation_id": map[string]any{
+						"type":        "string",
+						"description": "ID of the conversation whose dossier should be rebuilt.",
+					},
+					"since": map[string]any{
+						"type":        "string",
+						"description": "Optional ISO-8601 start date (YYYY-MM-DD or RFC3339) to anchor the rebuild. If omitted, all historical sessions are re-reconciled.",
+					},
+				},
+				"required": []string{"conversation_id"},
+			},
+		},
+		{
+			Name:        "get_task_status",
+			Description: "Polls the execution status and result of a long-running background task by task ID.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task_id": map[string]any{
+						"type":        "string",
+						"description": "The unique task identifier returned by an asynchronous tool.",
+					},
+				},
+				"required": []string{"task_id"},
 			},
 		},
 	}

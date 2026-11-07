@@ -475,3 +475,63 @@ func TestGetSessionAntecedents_UnitValidation(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, res.IsError)
 }
+
+func TestRedoContactDossier_AndGetTaskStatus(t *testing.T) {
+	var rebuilderCalled bool
+	srv := NewServer(ServerOptions{
+		Name: "test",
+		DossierRebuilder: func(ctx context.Context, conversationID string, since *time.Time) (map[string]any, error) {
+			rebuilderCalled = true
+			return map[string]any{
+				"conversation_id": conversationID,
+				"status":          "rebuilt",
+			}, nil
+		},
+	})
+
+	// 1. Trigger redo_contact_dossier
+	redoResp := srv.HandleMessage(context.Background(), &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      "test-redo-1",
+		Method:  MethodToolsCall,
+		Params:  []byte(`{"name":"redo_contact_dossier","arguments":{"conversation_id":"conv-12","since":"2026-08-01"}}`),
+	})
+	require.NotNil(t, redoResp)
+	res, ok := redoResp.Result.(*CallToolResult)
+	require.True(t, ok)
+	require.False(t, res.IsError)
+	require.NotEmpty(t, res.Content)
+
+	var payload map[string]any
+	rawJSON := strings.TrimPrefix(res.Content[0].Text, UntrustedDataOpenTag+"\n")
+	rawJSON = strings.TrimSuffix(rawJSON, "\n"+UntrustedDataCloseTag)
+	err := json.Unmarshal([]byte(rawJSON), &payload)
+	require.NoError(t, err)
+	taskID, ok := payload["task_id"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, taskID)
+
+	// Wait briefly for background execution to complete
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. Poll get_task_status
+	statusResp := srv.HandleMessage(context.Background(), &JSONRPCMessage{
+		JSONRPC: "2.0",
+		ID:      "test-status-1",
+		Method:  MethodToolsCall,
+		Params:  []byte(fmt.Sprintf(`{"name":"get_task_status","arguments":{"task_id":"%s"}}`, taskID)),
+	})
+	require.NotNil(t, statusResp)
+	statusRes, ok := statusResp.Result.(*CallToolResult)
+	require.True(t, ok)
+	require.False(t, statusRes.IsError)
+
+	var taskPayload AsyncTask
+	statusJSON := strings.TrimPrefix(statusRes.Content[0].Text, UntrustedDataOpenTag+"\n")
+	statusJSON = strings.TrimSuffix(statusJSON, "\n"+UntrustedDataCloseTag)
+	err = json.Unmarshal([]byte(statusJSON), &taskPayload)
+	require.NoError(t, err)
+	require.Equal(t, taskID, taskPayload.ID)
+	require.Equal(t, TaskStatusCompleted, taskPayload.Status)
+	require.True(t, rebuilderCalled)
+}
